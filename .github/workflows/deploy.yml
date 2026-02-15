@@ -5,7 +5,7 @@
 # Prerequisites:
 #   1. Azure App Service "perfsimphp" exists (Linux, PHP 8.4)
 #   2. Entra ID app registration with federated credential for this repo
-#   3. GitHub repo variables configured (see below)
+#   3. GitHub repo secrets configured (see below)
 
 name: Deploy to Azure App Service
 
@@ -47,9 +47,9 @@ jobs:
       - name: Login to Azure via OIDC
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
@@ -64,6 +64,6 @@ jobs:
           inlineScript: |
             az webapp config set \
               --name ${{ env.AZURE_WEBAPP_NAME }} \
-              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
               --startup-file "startup.sh" \
               --php-version "8.4"
