@@ -1,0 +1,19 @@
+{
+    "name": "perfsimphp/perfsimphp",
+    "description": "Performance Problem Simulator for PHP - Educational diagnostic training tool",
+    "version": "1.0.0",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "PerfSimPhp\\": "src/"
+        }
+    },
+    "scripts": {
+        "start": "php -S 0.0.0.0:8080 -t public public/index.php",
+        "dev": "php -S localhost:8080 -t public public/index.php"
+    }
+}

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PORTING NOTE: Update title to match target runtime and version -->
+  <title>Performance Problem Simulator - PHP Blessed Image (PHP|8.4)</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/styles.css">
+  <!-- Chart.js CDN — same version used across all PerfSim variants -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- PORTING NOTE: Node.js uses Socket.IO here; PHP uses AJAX polling instead -->
+</head>
+<body>
+  <header>
+    <button id="hamburger-btn" class="hamburger-btn attention" aria-label="Open navigation menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <!-- PORTING NOTE: Update heading to match target runtime -->
+    <h1>🐘 Performance Problem Simulator - PHP Blessed Image (PHP|8.4)</h1>
+    <span id="sku-badge" class="sku-badge">SKU: Local</span>
+    <nav>
+      <button id="toggle-panel" class="btn-panel-toggle">🎮 Simulation Controls</button>
+    </nav>
+    <div id="connection-status" class="status-disconnected">
+      <span id="connection-status-dot" class="status-dot disconnected"></span>
+      <span id="connection-status-text">Disconnected</span>
+    </div>
+  </header>
+
+  <!-- Sidebar Drawer Navigation -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  <aside id="sidebar-drawer" class="sidebar-drawer">
+    <div class="sidebar-header">
+      <!-- PORTING NOTE: Update sidebar branding for target runtime -->
+      <h2>🐘 PerfSimPhp</h2>
+      <button id="sidebar-close" class="sidebar-close" aria-label="Close navigation">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Application</div>
+      <a href="/" class="sidebar-nav-item active">
+        <span class="nav-icon">🎮</span>
+        <span class="nav-label">Dashboard<span class="nav-desc">Live metrics & controls</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">Documentation</div>
+      <a href="/docs.html" class="sidebar-nav-item">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">Documentation<span class="nav-desc">API reference & guides</span></span>
+      </a>
+      <a href="/azure-diagnostics.html" class="sidebar-nav-item">
+        <span class="nav-icon">☁️</span>
+        <span class="nav-label">Azure Diagnostics<span class="nav-desc">Diagnose issues in App Service</span></span>
+      </a>
+      <a href="/azure-deployment.html" class="sidebar-nav-item">
+        <span class="nav-icon">🚀</span>
+        <span class="nav-label">Deploy to Azure<span class="nav-desc">GitHub Actions + OIDC setup</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">External</div>
+      <!-- PORTING NOTE: Update GitHub repo link for target runtime -->
+      <a href="https://github.com/rhamlett/PerfSimPhp" target="_blank" class="sidebar-nav-item">
+        <span class="nav-icon">🐙</span>
+        <span class="nav-label">GitHub Repository<span class="nav-desc">Source code & issues</span></span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <!-- PORTING NOTE: Update footer text for target runtime -->
+      PerfSimPhp v1.0 • PHP 8.4
+    </div>
+  </aside>
+
+  <div class="app-container">
+    <main>
+      <!-- Compact Metric Tiles -->
+      <section id="metrics-section">
+        <div class="metrics-tiles">
+          <div class="metric-tile cpu">
+            <div class="tile-content">
+              <div class="tile-icon">⚡</div>
+              <div class="tile-info">
+                <!-- PORTING NOTE: Update tooltip to describe how CPU is measured in the target runtime -->
+                <span class="tile-label">CPU Usage <span class="info-icon-small" title="Sampled using sys_getloadavg() and /proc/stat for system-wide measurement. Fluctuations at idle are normal due to PHP-FPM worker management and container scheduling. Focus on trends during simulations.">ⓘ</span></span>
+                <div class="tile-value"><span id="cpu-value">0.0</span> <span class="tile-unit">%</span></div>
+              </div>
+            </div>
+            <div class="metric-bar"><div class="metric-bar-fill" id="cpu-bar" style="width: 0%;"></div></div>
+          </div>
+          <div class="metric-tile memory">
+            <div class="tile-content">
+              <div class="tile-icon">📊</div>
+              <div class="tile-info">
+                <!-- PORTING NOTE: Update tooltip for target runtime's memory model -->
+                <span class="tile-label">Memory Working Set <span class="info-icon-small" title="PHP process memory usage via memory_get_usage(true). On Azure App Service, this may exceed the SKU's advertised RAM due to shared VM resources.">ⓘ</span></span>
+                <div class="tile-value"><span id="memory-value">0</span> <span class="tile-unit">MB</span> <span id="memory-total" class="tile-subtext">of -- GB</span></div>
+              </div>
+            </div>
+            <div class="metric-bar"><div class="metric-bar-fill" id="memory-bar" style="width: 0%;"></div></div>
+          </div>
+          <!-- PORTING NOTE: Node.js shows "Event Loop Lag" here. PHP shows "FPM Workers Busy" instead. 
+               Each runtime should show a metric that reflects its concurrency model. -->
+          <div class="metric-tile eventloop">
+            <div class="tile-content">
+              <div class="tile-icon">🧵</div>
+              <div class="tile-info">
+                <span class="tile-label">FPM Workers Busy <span class="info-icon-small" title="Number of PHP-FPM worker processes currently handling requests. When all workers are busy, new requests queue. High values indicate blocking operations consuming the worker pool.">ⓘ</span></span>
+                <div class="tile-value"><span id="eventloop-value">0</span> <span class="tile-unit">busy</span></div>
+              </div>
+            </div>
+            <div class="metric-bar"><div class="metric-bar-fill" id="eventloop-bar" style="width: 0%;"></div></div>
+          </div>
+          <div class="metric-tile latency">
+            <div class="tile-content">
+              <div class="tile-icon">📋</div>
+              <div class="tile-info">
+                <span class="tile-label">RSS Memory <span class="info-icon-small" title="Resident Set Size: Total memory allocated to the PHP-FPM master process, including all workers and shared libraries">ⓘ</span></span>
+                <div class="tile-value"><span id="rss-value">0</span> <span class="tile-unit">MB</span></div>
+              </div>
+            </div>
+            <div class="metric-bar"><div class="metric-bar-fill" id="rss-bar" style="width: 0%;"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Charts Section -->
+      <section id="charts-section">
+        <div class="charts-grid">
+          <div class="chart-card">
+            <h3>📈 CPU & Memory Over Time</h3>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-color" style="background: #0078d4;"></span> CPU %</span>
+              <span class="legend-item"><span class="legend-color" style="background: #107c10;"></span> Memory MB</span>
+            </div>
+            <canvas id="cpu-memory-chart"></canvas>
+          </div>
+          <!-- PORTING NOTE: Node.js shows "Event Loop & RSS Memory". PHP shows "FPM Workers & RSS Memory" -->
+          <div class="chart-card">
+            <h3>🧵 FPM Workers & RSS Memory</h3>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-color" style="background: #8764b8;"></span> Workers Busy</span>
+              <span class="legend-item"><span class="legend-color" style="background: #ffb900;"></span> RSS (MB)</span>
+            </div>
+            <canvas id="eventloop-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Request Latency Monitor -->
+      <section id="latency-section">
+        <div class="latency-card">
+          <h3>⏱️ Request Latency Monitor <span id="probe-visualization" class="probe-visualization-inline" title="Probe history: Green=good (<150ms), Yellow=degraded (150ms-1s), Orange=slow (>1s), Red=failed/timeout"></span></h3>
+          <!-- PORTING NOTE: Update latency description for target runtime's probe mechanism -->
+          <p class="latency-description">Measures actual response time via browser XHR probes to a lightweight endpoint. Times include PHP-FPM worker acquisition, processing, and network latency.</p>
+          
+          <div class="latency-stats">
+            <div class="latency-stat">
+              <span class="stat-label">CURRENT</span>
+              <span class="stat-value" id="latency-current">0.0ms</span>
+            </div>
+            <div class="latency-stat">
+              <span class="stat-label">AVG (60S)</span>
+              <span class="stat-value" id="latency-avg">0.0ms</span>
+            </div>
+            <div class="latency-stat">
+              <span class="stat-label">MAX (60S)</span>
+              <span class="stat-value warning" id="latency-max">0.0ms</span>
+            </div>
+            <div class="latency-stat">
+              <span class="stat-label">CRITICAL (&gt;30S)</span>
+              <span class="stat-value" id="latency-critical">0</span>
+            </div>
+          </div>
+          <div class="thresholds">
+            <span class="threshold-label">Thresholds:</span>
+            <span class="threshold good">● Good (&lt;150ms)</span>
+            <span class="threshold degraded">● Degraded (150ms-1s)</span>
+            <span class="threshold severe">● Severe (&gt;1s)</span>
+            <span class="threshold critical">● Critical (&gt;30s)</span>
+          </div>
+          <h4>📊 Response Latency Over Time</h4>
+          <div class="latency-chart-container">
+            <canvas id="latency-chart"></canvas>
+            <div id="slow-status" class="slow-status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Active Simulations -->
+      <section id="active-section">
+        <div class="active-card">
+          <h3>🏃 Active Simulations</h3>
+          <div id="active-simulations" class="active-simulations-list">
+            <p class="no-simulations">No active simulations</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Event Log -->
+      <section id="events-section">
+        <div class="event-log-card">
+          <h3>📜 Event Log</h3>
+          <div id="event-log" class="event-log">
+            <div class="event-log-empty">No events yet. Start a simulation to see events here.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Side Panel for Simulation Controls -->
+    <aside id="simulation-panel" class="side-panel">
+      <div class="panel-header">
+        <h2>🎮 Simulation Controls</h2>
+        <button id="close-panel" class="close-btn">✕</button>
+      </div>
+      <div class="panel-warning">
+        ⚠️ These buttons intentionally cause performance problems!
+      </div>
+      <div class="panel-content">
+        <!-- CPU Stress -->
+        <!-- PORTING NOTE: Update CPU stress description for the target runtime's process model -->
+        <div class="control-section cpu-section">
+          <h3>🔥 CPU Stress <span class="info-icon" title="Uses exec() to spawn separate background PHP processes. Each process runs 100% on a CPU core using hash_pbkdf2(). For 75% on 2 cores: spawns 1-2 processes.">ℹ️</span></h3>
+          <p class="control-description">Spawns background PHP processes running hash_pbkdf2(). Server stays responsive — work runs in separate processes, not in the FPM worker pool.</p>
+          <form id="cpu-form">
+            <label>
+              Duration (s):
+              <input type="number" name="durationSeconds" id="cpu-duration" value="10" min="1" max="300">
+            </label>
+            <label>
+              Target Load:
+              <select name="targetLoadPercent" id="cpu-load" class="wide-select">
+                <option value="25">Low (~25%)</option>
+                <option value="50">Medium (~50%)</option>
+                <option value="75" selected>High (~75%)</option>
+                <option value="100">Maximum (100%)</option>
+              </select>
+            </label>
+            <div class="btn-group">
+              <button type="submit" class="btn-trigger btn-cpu">🔥 Trigger High CPU</button>
+              <button type="button" id="stop-cpu" class="btn-stop">⬛ Stop</button>
+            </div>
+          </form>
+          <div id="cpu-active" class="active-simulations"></div>
+        </div>
+
+        <!-- Memory Pressure -->
+        <!-- PORTING NOTE: Update memory description for target runtime. Node.js uses Buffer, PHP uses arrays in shared storage. -->
+        <div class="control-section memory-section">
+          <h3>📊 Memory Pressure <span class="info-icon" title="Memory is held in shared storage (APCu or file-based) until released. Multiple allocations stack. Each FPM worker accessing the data adds to total memory.">ℹ️</span></h3>
+          <p class="control-description">Allocates large data blocks in shared storage (APCu or file). Multiple allocations stack — mimics gradual memory leak across FPM workers.</p>
+          <form id="memory-form">
+            <label>
+              Size (MB):
+              <input type="number" name="sizeMb" id="memory-size" value="512" min="1" max="2000">
+            </label>
+            <div class="btn-group">
+              <button type="submit" class="btn-trigger btn-memory">📈 Allocate</button>
+              <button type="button" id="release-memory" class="btn-release">🗑️ Release</button>
+            </div>
+          </form>
+          <div id="memory-active" class="active-simulations"></div>
+        </div>
+
+        <!-- Request Thread Blocking (Event Loop Blocking in Node.js) -->
+        <!-- PORTING NOTE: This is the key simulation difference between runtimes.
+             Node.js: Event loop blocking — blocks the single event loop thread, freezing ALL requests.
+             PHP: Request thread blocking — blocks individual FPM workers. Need to exhaust the pool to block all.
+             Other runtimes: Adapt to the concurrency model (e.g., Go goroutine, .NET thread pool, etc.) -->
+        <div class="control-section eventloop-section">
+          <h3>🧵 Request Thread Blocking <span class="info-icon" title="Unlike CPU Stress (background processes), this runs INSIDE a PHP-FPM worker. Each blocked worker cannot serve other requests. Exhaust the pool and ALL requests queue!">⚠️</span></h3>
+          <p class="control-description">Runs hash_pbkdf2() inside a PHP-FPM worker, blocking it from serving other requests. Unlike Node.js event loop blocking, this only blocks the individual worker — exhaust the pool to see queueing.</p>
+          <div class="eventloop-education">
+            <strong>What to observe:</strong>
+            <ul>
+              <!-- PORTING NOTE: Update observation bullets for the target runtime's behavior -->
+              <li>Latency chart shows elevated latency when workers are occupied</li>
+              <li>Probe dots turn yellow/orange as FPM workers become scarce</li>
+              <li>FPM Workers Busy metric increases — at max, new requests queue</li>
+            </ul>
+          </div>
+          <form id="eventloop-form">
+            <label>
+              Block Duration (s):
+              <input type="number" name="durationSeconds" id="blocking-duration" value="5" min="1" max="60">
+            </label>
+            <!-- PORTING NOTE: Node.js has a "Chunk (ms)" parameter for yielding between blocking chunks.
+                 PHP doesn't yield between chunks (each FPM worker is independent), so this parameter is removed. -->
+            <button type="submit" class="btn-trigger btn-eventloop">🧵 Block FPM Worker</button>
+          </form>
+          <div id="eventloop-impact" class="eventloop-impact"></div>
+        </div>
+
+        <!-- Slow Requests -->
+        <div class="control-section slow-section">
+          <!-- PORTING NOTE: Update slow request patterns for the target runtime's I/O model.
+               Node.js: setTimeout (timer), libuv (thread pool), worker (worker_threads)
+               PHP: sleep (PHP sleep()), cpu_intensive (hash_pbkdf2), file_io (file read/write)
+               Go: time.Sleep, goroutine saturation, etc. -->
+          <h3>🐌 Slow Requests <span class="info-icon" title="Simulates slow responses with different blocking patterns specific to PHP">ℹ️</span></h3>
+          <p class="control-description">Simulates slow HTTP responses using PHP-specific blocking patterns. Choose a pattern to observe different resource contention behaviors.</p>
+          <div class="slow-note">
+            ⚠️ Note: Requests exceeding 30 seconds total time (queue + execution) are flagged as critical
+          </div>
+          <form id="slow-form">
+            <label>
+              Blocking Pattern:
+              <select name="blockingPattern" id="slow-pattern" class="blocking-pattern-select">
+                <!-- PORTING NOTE: Update options to match target runtime patterns -->
+                <option value="sleep">sleep() — Non-blocking delay</option>
+                <option value="cpu_intensive">CPU Intensive (hash_pbkdf2)</option>
+                <option value="file_io">File I/O Saturation</option>
+              </select>
+            </label>
+            <div id="pattern-description" class="pattern-description"></div>
+            <label>
+              Request Execution Time (s) <span class="info-icon" title="Time for each request">ⓘ</span>:
+              <input type="number" name="delaySeconds" id="slow-delay" value="10" min="1" max="300">
+            </label>
+            <label>
+              Interval (s):
+              <input type="number" name="intervalSeconds" id="slow-interval" value="5" min="1" max="60">
+            </label>
+            <label>
+              Max Requests:
+              <input type="number" name="maxRequests" id="slow-max" value="3" min="1" max="100">
+            </label>
+            <div class="btn-group">
+              <button type="submit" class="btn-trigger btn-slow">🐌 Start Slow Requests</button>
+              <button type="button" id="stop-slow" class="btn-stop">⬛ Stop</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Crash Simulation -->
+        <!-- PORTING NOTE: Update crash types to match the target runtime's crash mechanisms.
+             Node.js: SIGABRT, stack overflow, unhandled exception, OOM
+             PHP: exit(1), infinite recursion, trigger_error, memory exhaustion
+             Go: os.Exit(1), goroutine stack overflow, panic, runtime.MemStats exhaustion -->
+        <div class="control-section crash-section">
+          <h3>💥 Application Crash <span class="info-icon" title="PHP-FPM worker terminates immediately. PHP-FPM master auto-restarts the worker. Watch for PID change in Event Log.">⚠️</span></h3>
+          <p class="control-description">Terminates the PHP-FPM worker process. PHP-FPM master auto-restarts workers — observe the recovery and new Process ID in Event Log.</p>
+          <form id="crash-form">
+            <label>
+              Crash Type:
+              <select name="crashType" id="crash-type" class="crash-select">
+                <!-- PORTING NOTE: Update crash options for target runtime -->
+                <option value="failfast">FailFast — exit(1)</option>
+                <option value="stackoverflow">Stack Overflow — Infinite Recursion</option>
+                <option value="exception" selected>Fatal Error — trigger_error()</option>
+                <option value="oom">Out of Memory — Exceed memory_limit</option>
+              </select>
+            </label>
+            <button type="submit" class="btn-danger btn-crash">💥 Trigger Crash</button>
+          </form>
+          <p class="crash-warning">⚠️ This will TERMINATE the PHP-FPM worker!</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <p>Performance Problem Simulator — Educational Tool for Azure App Service Diagnostics</p>
+    <p>Created by <a href="https://speckit.org/" target="_blank">SpecKit</a> in collaboration with <a href="mailto:rhamlett@microsoft.com">Richard Hamlett</a></p>
+    <p id="build-info">Build: Loading...</p>
+  </footer>
+
+  <!-- PORTING NOTE: Node.js loads socket-client.js + socket.io here.
+       PHP uses polling-client.js for AJAX polling instead of WebSocket.
+       Other runtimes: Choose appropriate real-time transport (SSE, WebSocket, polling). -->
+  <script src="/js/polling-client.js"></script>
+  <script src="/js/charts.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script>
+    // Sidebar drawer toggle
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarDrawer = document.getElementById('sidebar-drawer');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    function openSidebar() {
+      hamburgerBtn.classList.remove('attention');
+      hamburgerBtn.classList.add('active');
+      sidebarOverlay.classList.add('active');
+      sidebarDrawer.classList.add('active');
+    }
+
+    function closeSidebar() {
+      hamburgerBtn.classList.remove('active');
+      sidebarOverlay.classList.remove('active');
+      sidebarDrawer.classList.remove('active');
+    }
+
+    hamburgerBtn.addEventListener('click', openSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+    sidebarClose.addEventListener('click', closeSidebar);
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSidebar();
+    });
+
+    // Side panel toggle (Simulation Controls button)
+    const togglePanelBtn = document.getElementById('toggle-panel');
+    const simulationPanel = document.getElementById('simulation-panel');
+    const closePanelBtn = document.getElementById('close-panel');
+
+    if (togglePanelBtn && simulationPanel) {
+      togglePanelBtn.addEventListener('click', () => {
+        simulationPanel.classList.toggle('open');
+      });
+    }
+    if (closePanelBtn && simulationPanel) {
+      closePanelBtn.addEventListener('click', () => {
+        simulationPanel.classList.remove('open');
+      });
+    }
+  </script>
+</body>
+</html>

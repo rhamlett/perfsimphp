@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PerfSimPhp - Azure Diagnostics Guide -->
+  <!-- Adapted from PerfSimNode for PHP 8.4 on Azure App Service -->
+  <!-- To duplicate for another language: update all PHP-specific diagnostic tools, -->
+  <!-- profiling methods, console commands, and metric explanations -->
+  <title>Azure Diagnostics Guide - PerfSimPhp</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    /* Diagnostics page layout and component styles */
+    /* These styles are shared across language implementations */
+    .diag-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+      flex: 1;
+      min-width: 0;
+    }
+    .diag-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .diag-header h1 {
+      color: var(--primary-color);
+      margin-bottom: 0.5rem;
+    }
+    .diag-header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+    }
+    .card {
+      background: var(--card-background);
+      border-radius: 8px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .card h2 {
+      color: var(--primary-color);
+      border-bottom: 2px solid var(--border-color);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .card h3 {
+      color: var(--text-color);
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .card h4 {
+      color: var(--text-secondary);
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    /* Metric explanation grid - each box shows one key metric */
+    /* To add a new metric: add a .metric-box with a unique border-color class */
+    .metric-explanation {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .metric-box {
+      border-left: 4px solid var(--primary-color);
+      background: var(--background-color);
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+    }
+    .metric-box.cpu { border-color: #ff8c00; }
+    .metric-box.memory { border-color: #0078d4; }
+    .metric-box.fpmworkers { border-color: #8764b8; }
+    .metric-box.latency { border-color: #107c10; }
+    .metric-box h4 {
+      margin: 0 0 0.5rem 0;
+      color: var(--text-color);
+    }
+    .metric-box p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+    /* Scenario grid - each card describes a simulation type and its diagnostics */
+    /* To add a scenario: add a .scenario-card with a colored .header */
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin: 1rem 0;
+    }
+    .scenario-card {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .scenario-card .header {
+      padding: 1rem;
+      font-weight: 600;
+      color: white;
+    }
+    .scenario-card .header.cpu { background: linear-gradient(135deg, #d83b01, #ff8c00); }
+    .scenario-card .header.memory { background: linear-gradient(135deg, #0078d4, #00bcf2); }
+    .scenario-card .header.blocking { background: linear-gradient(135deg, #5c2d91, #8764b8); }
+    .scenario-card .header.slow { background: linear-gradient(135deg, #ff8c00, #ffb900); }
+    .scenario-card .header.crash { background: linear-gradient(135deg, #a4262c, #d83b01); }
+    .scenario-card .body {
+      padding: 1rem;
+    }
+    .scenario-card .body h4 {
+      margin: 0.75rem 0 0.25rem;
+      font-size: 0.9rem;
+    }
+    .scenario-card .body ul {
+      margin: 0;
+      padding-left: 1.25rem;
+      font-size: 0.85rem;
+    }
+    .scenario-card .body li {
+      margin-bottom: 0.25rem;
+    }
+    /* Tool grid - each card describes an Azure diagnostic tool */
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .tool-card {
+      background: var(--background-color);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .tool-card h4 {
+      margin: 0 0 0.5rem;
+      color: var(--primary-color);
+    }
+    .tool-card p {
+      margin: 0 0 0.5rem;
+      font-size: 0.85rem;
+    }
+    .tool-card code {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+    }
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .comparison-table th, .comparison-table td {
+      border: 1px solid var(--border-color);
+      padding: 0.75rem;
+      text-align: left;
+    }
+    .comparison-table th {
+      background: var(--background-color);
+      font-weight: 600;
+    }
+    .comparison-table tr:nth-child(even) {
+      background: rgba(0,0,0,0.02);
+    }
+    .alert-box {
+      padding: 1rem 1.25rem;
+      border-radius: 6px;
+      margin: 1rem 0;
+    }
+    .alert-box.info {
+      background: #e6f3ff;
+      border-left: 4px solid var(--primary-color);
+    }
+    .alert-box.warning {
+      background: #fff4ce;
+      border-left: 4px solid var(--warning-color);
+    }
+    .alert-box.success {
+      background: #dff6dd;
+      border-left: 4px solid var(--success-color);
+    }
+    .alert-box strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+    code {
+      background: var(--background-color);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    .flowchart {
+      background: var(--background-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1rem 0;
+      text-align: center;
+    }
+    .flowchart .step {
+      display: inline-block;
+      padding: 0.75rem 1rem;
+      background: var(--card-background);
+      border: 2px solid var(--primary-color);
+      border-radius: 6px;
+      margin: 0.25rem;
+    }
+    .flowchart .arrow {
+      display: inline-block;
+      color: var(--primary-color);
+      font-weight: bold;
+      margin: 0 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header - update title and emoji for each language implementation -->
+  <header>
+    <button id="hamburger-btn" class="hamburger-btn attention" aria-label="Open navigation menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <h1>🐘 Performance Problem Simulator - PHP Blessed Image (PHP|8.4)</h1>
+    <span id="sku-badge" class="sku-badge">SKU: Local</span>
+    <nav>
+      <a href="/" class="btn-panel-toggle">🎮 Dashboard</a>
+    </nav>
+  </header>
+
+  <!-- Sidebar Drawer Navigation -->
+  <!-- To duplicate: update app name, emoji, links, footer version -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  <aside id="sidebar-drawer" class="sidebar-drawer">
+    <div class="sidebar-header">
+      <h2>🐘 PerfSimPhp</h2>
+      <button id="sidebar-close" class="sidebar-close" aria-label="Close navigation">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Application</div>
+      <a href="/" class="sidebar-nav-item">
+        <span class="nav-icon">🎮</span>
+        <span class="nav-label">Dashboard<span class="nav-desc">Live metrics & controls</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">Documentation</div>
+      <a href="/docs.html" class="sidebar-nav-item">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">Documentation<span class="nav-desc">API reference & guides</span></span>
+      </a>
+      <a href="/azure-diagnostics.html" class="sidebar-nav-item active">
+        <span class="nav-icon">☁️</span>
+        <span class="nav-label">Azure Diagnostics<span class="nav-desc">Diagnose issues in App Service</span></span>
+      </a>
+      <a href="/azure-deployment.html" class="sidebar-nav-item">
+        <span class="nav-icon">🚀</span>
+        <span class="nav-label">Deploy to Azure<span class="nav-desc">GitHub Actions + OIDC setup</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">External</div>
+      <a href="https://github.com/rhamlett/PerfSimPhp" target="_blank" class="sidebar-nav-item">
+        <span class="nav-icon">🐙</span>
+        <span class="nav-label">GitHub Repository<span class="nav-desc">Source code & issues</span></span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      PerfSimPhp v1.0 &bull; PHP 8.4
+    </div>
+  </aside>
+
+  <div class="docs-page-wrapper">
+  <main class="diag-container">
+    <div class="diag-header">
+      <h1>☁️ Azure Diagnostics Guide</h1>
+      <p>How to diagnose PHP performance issues using Azure tools and understand what the metrics mean</p>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Understanding Metrics -->
+    <!-- Each metric-box describes one dashboard metric. For other languages, -->
+    <!-- replace the PHP-FPM worker explanation with the equivalent concept -->
+    <!-- (e.g., event loop lag for Node.js, thread pool for Java) -->
+    <!-- ================================================================== -->
+    <section id="understanding-metrics" class="card">
+      <h2>📈 Understanding the Dashboard Metrics</h2>
+      <p>The PerfSimPhp dashboard displays real-time metrics that help identify performance issues. Here's what each metric means:</p>
+
+      <div class="metric-explanation">
+        <div class="metric-box cpu">
+          <h4>⚡ CPU Usage (%)</h4>
+          <p><strong>What it measures:</strong> Percentage of CPU time consumed by PHP-FPM worker processes.</p>
+          <p><strong>Why it matters:</strong> High CPU indicates compute-bound operations. In PHP, this typically means intensive calculations, tight loops, or cryptographic operations (hash_pbkdf2, password_hash).</p>
+          <p><strong>Normal range:</strong> 0-30% at idle, spikes during requests are normal.</p>
+          <p><strong>Warning signs:</strong> Sustained >70% indicates a problem.</p>
+        </div>
+
+        <div class="metric-box memory">
+          <h4>📊 Memory Working Set (MB)</h4>
+          <p><strong>What it measures:</strong> Total memory the PHP-FPM master and worker processes have allocated and are actively using.</p>
+          <p><strong>Why it matters:</strong> Each PHP-FPM worker has its own memory space. Memory leaks within a request are cleaned up when the request ends, but shared memory (APCu) and large allocations can persist.</p>
+          <p><strong>Normal range:</strong> Depends on worker count and app, but should stabilize after warmup.</p>
+          <p><strong>Warning signs:</strong> Continuous growth over time across multiple workers.</p>
+        </div>
+
+        <div class="metric-box fpmworkers">
+          <h4>🧵 FPM Workers Busy</h4>
+          <p><strong>What it measures:</strong> Number of PHP-FPM worker processes currently handling requests.</p>
+          <p><strong>Why it matters:</strong> <em>This is the key metric for request thread blocking problems!</em> When all FPM workers are busy with blocking operations, new requests must wait in the queue&mdash;similar to how event loop blocking affects all requests in Node.js.</p>
+          <p><strong>Normal range:</strong> Low relative to pm.max_children</p>
+          <p><strong>Warning signs:</strong> Equal to pm.max_children means pool exhaustion&mdash;all new requests are queued.</p>
+        </div>
+
+        <div class="metric-box latency">
+          <h4>⏱️ Request Latency (ms)</h4>
+          <p><strong>What it measures:</strong> Time from request received to response sent, including time waiting in the FPM queue for an available worker.</p>
+          <p><strong>Why it matters:</strong> Direct measure of user experience. High latency with low CPU often indicates blocking operations or external dependency issues.</p>
+          <p><strong>Normal range:</strong> &lt;150ms for simple requests</p>
+          <p><strong>Warning signs:</strong> >1s degraded; >30s critical (may hit PHP max_execution_time).</p>
+        </div>
+      </div>
+
+      <div class="alert-box info">
+        <strong>💡 Key Insight: PHP-FPM Worker Pool</strong>
+        PHP uses a <em>multi-process model</em> via PHP-FPM. Each request gets its own worker process. When you see high FPM Workers Busy, it means the worker pool is being consumed by blocking requests. Unlike Node.js where a single blocked event loop affects all requests, in PHP each blocked worker only affects one request&mdash;but when ALL workers are busy, the entire pool is exhausted and new requests queue.
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Diagnostic Scenarios -->
+    <!-- Each scenario-card maps to a simulation type. For other languages,  -->
+    <!-- update the "What's Happening" and tool recommendations -->
+    <!-- ================================================================== -->
+    <section id="diagnostic-scenarios" class="card">
+      <h2>🔍 Diagnostic Scenarios</h2>
+      <p>Here's how to diagnose each type of performance problem this simulator creates:</p>
+
+      <div class="scenario-grid">
+        <div class="scenario-card">
+          <div class="header cpu">🔥 High CPU Usage</div>
+          <div class="body">
+            <p><strong>Symptom:</strong> CPU metric pinned high, requests may still complete normally (separate background processes).</p>
+            <h4>What's Happening</h4>
+            <ul>
+              <li>Simulation spawns background PHP processes via <code>exec("nohup php ... &")</code></li>
+              <li>Each child runs CPU-intensive <code>hash_pbkdf2()</code> in a loop</li>
+              <li>Work is isolated from FPM workers &mdash; server stays responsive</li>
+              <li>Multiple <code>php</code> processes visible in <code>top</code></li>
+            </ul>
+            <h4>Key Insight</h4>
+            <p><em>CPU stress &ne; Request blocking!</em> High CPU in background processes doesn't block FPM workers. Watch the FPM Workers Busy &mdash; it stays low even with high CPU.</p>
+            <h4>Azure Diagnostic Tools</h4>
+            <ul>
+              <li>App Service Diagnostics &rarr; <strong>CPU Drill Down</strong></li>
+              <li>Application Insights &rarr; <strong>Performance</strong></li>
+              <li>Kudu SSH &rarr; <code>top</code>, <code>ps aux | grep php</code></li>
+              <li><a href="#php-profiling">PHP Profiling</a> &rarr; Xdebug or Blackfire to identify hot functions</li>
+            </ul>
+            <h4>What to Look For</h4>
+            <ul>
+              <li>Which process(es) consuming CPU (FPM workers vs background processes)</li>
+              <li>Process command line showing worker scripts</li>
+              <li>FPM Workers Busy should remain LOW</li>
+              <li>Profiler output showing time-consuming functions</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="scenario-card">
+          <div class="header memory">📊 Memory Pressure</div>
+          <div class="body">
+            <p><strong>Symptom:</strong> Memory grows, stays high, may eventually hit memory_limit.</p>
+            <h4>What's Happening</h4>
+            <ul>
+              <li>Simulation allocates large arrays/strings and stores in shared memory (APCu)</li>
+              <li>PHP's per-request garbage collection can't free shared memory</li>
+              <li>Simulates memory leaks from caching gone wrong</li>
+              <li>APCu memory persists across requests until explicitly cleared or FPM restarts</li>
+            </ul>
+            <h4>Azure Diagnostic Tools</h4>
+            <ul>
+              <li>App Service Diagnostics &rarr; <strong>Memory Analysis</strong></li>
+              <li>Application Insights &rarr; <strong>Metrics</strong></li>
+              <li>Kudu &rarr; <strong>Process Explorer</strong></li>
+              <li><a href="#php-profiling">PHP Profiling</a> &rarr; Xdebug memory profiling or <code>memory_get_usage()</code></li>
+            </ul>
+            <h4>What to Look For</h4>
+            <ul>
+              <li>APCu memory usage via <code>apcu_cache_info()</code></li>
+              <li>Per-worker RSS growth over time</li>
+              <li>Memory growth pattern (APCu leak vs. per-request leak)</li>
+              <li>Correlation with specific endpoints or operations</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="scenario-card">
+          <div class="header blocking">🧵 Request Thread Blocking</div>
+          <div class="body">
+            <p><strong>Symptom:</strong> FPM Workers Busy maxes out, new requests queue, latency chart shows sustained high latency.</p>
+            <h4>What's Happening</h4>
+            <ul>
+              <li>Synchronous <code>hash_pbkdf2()</code> runs IN the FPM worker handling the request</li>
+              <li>The worker is occupied for the entire blocking duration</li>
+              <li>Other FPM workers remain available&mdash;until the pool is exhausted</li>
+              <li>Latency chart updates showing the blocking effect on queued requests</li>
+              <li><strong>Key difference from CPU stress:</strong> Workers occupied, pool can be exhausted!</li>
+            </ul>
+            <h4>How to Identify</h4>
+            <p><em>Check FPM Workers Busy!</em> If it equals pm.max_children, the pool is exhausted. CPU stress shows high CPU but LOW worker utilization (background processes, not FPM workers).</p>
+            <h4>Azure Diagnostic Tools</h4>
+            <ul>
+              <li>Application Insights &rarr; <strong>Performance</strong></li>
+              <li>App Service Diagnostics &rarr; <strong>Web App Slow</strong></li>
+              <li>Azure Monitor &rarr; <strong>Metrics</strong> for request latency spikes</li>
+              <li><a href="#php-profiling">PHP Profiling</a> &rarr; Xdebug trace during block shows blocking code</li>
+            </ul>
+            <h4>What to Look For</h4>
+            <ul>
+              <li>FPM Workers Busy = pm.max_children (pool exhausted)</li>
+              <li>Requests queued waiting for free workers</li>
+              <li>Latency chart shows elevated latency during the simulation</li>
+              <li>CPU may be high OR low (depends on blocking work type)</li>
+              <li>Xdebug trace shows the synchronous function (e.g., <code>hash_pbkdf2</code>)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="scenario-card">
+          <div class="header slow">🐢 Slow Requests</div>
+          <div class="body">
+            <p><strong>Symptom:</strong> Specific endpoint takes long time, but other endpoints are NORMAL.</p>
+            <h4>What's Happening</h4>
+            <ul>
+              <li><strong>Sleep pattern:</strong> Uses <code>sleep()</code> / <code>usleep()</code> for delay</li>
+              <li><strong>CPU intensive:</strong> Uses <code>hash_pbkdf2()</code> computation</li>
+              <li><strong>File I/O:</strong> Intensive file read/write operations</li>
+              <li>Simulates slow database queries, external API calls, file processing</li>
+              <li><strong>Key difference from Request Thread Blocking:</strong> Only slow endpoint affected!</li>
+            </ul>
+            <h4>How to Identify</h4>
+            <p><em>Check if OTHER requests are affected.</em> Slow requests: only slow endpoint is slow. Request thread blocking: pool exhaustion affects EVERYTHING.</p>
+            <h4>Azure Diagnostic Tools</h4>
+            <ul>
+              <li>Application Insights &rarr; <strong>End-to-end transaction</strong></li>
+              <li>Application Insights &rarr; <strong>Dependency tracking</strong></li>
+              <li>Log Analytics &rarr; Request duration by endpoint</li>
+            </ul>
+            <h4>What to Look For</h4>
+            <ul>
+              <li>Which specific endpoint is slow</li>
+              <li>Dependency timing breakdown</li>
+              <li>FPM Workers Busy stays LOW (unless pool is small)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="scenario-card">
+          <div class="header crash">💥 Application Crash</div>
+          <div class="body">
+            <p><strong>Symptom:</strong> Individual requests fail with 500 errors, or entire FPM pool restarts.</p>
+            <h4>What's Happening</h4>
+            <ul>
+              <li><strong>exit(1):</strong> Worker process terminates immediately</li>
+              <li><strong>Infinite recursion:</strong> Stack overflow crashes the worker</li>
+              <li><strong>trigger_error:</strong> Fatal error kills the worker</li>
+              <li><strong>Memory exhaustion:</strong> Exceeds memory_limit, OOM kills worker</li>
+              <li>PHP-FPM master respawns crashed workers automatically</li>
+            </ul>
+            <h4>Azure Diagnostic Tools</h4>
+            <ul>
+              <li>App Service Diagnostics &rarr; <strong>Web App Restarted</strong></li>
+              <li>Application Insights &rarr; <strong>Failures</strong></li>
+              <li>Kudu &rarr; <strong>LogFiles</strong> (PHP error log)</li>
+              <li>PHP error log &rarr; <code>/home/LogFiles/php_errors.log</code></li>
+            </ul>
+            <h4>What to Look For</h4>
+            <ul>
+              <li>PHP error log entries with stack traces</li>
+              <li>FPM slow log for long-running requests</li>
+              <li>Memory usage before crash (memory_limit reached?)</li>
+              <li>Worker respawn events in FPM log</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Azure Diagnostic Tools -->
+    <!-- These tools are common across all language implementations -->
+    <!-- ================================================================== -->
+    <section id="azure-tools" class="card">
+      <h2>🛠️ Azure Diagnostic Tools</h2>
+      <p>Key Azure tools for diagnosing PHP performance issues:</p>
+
+      <div class="tool-grid">
+        <div class="tool-card">
+          <h4>App Service Diagnostics</h4>
+          <p>Built-in diagnostic reports in Azure Portal. Access via "Diagnose and solve problems".</p>
+          <p><strong>Best for:</strong> Quick health overview, CPU/memory analysis, crash investigation.</p>
+        </div>
+        <div class="tool-card">
+          <h4>Application Insights</h4>
+          <p>Full APM solution with request tracing, dependency tracking, and custom metrics.</p>
+          <p><strong>Best for:</strong> End-to-end tracing, performance trends, failure analysis.</p>
+        </div>
+        <div class="tool-card">
+          <h4>Kudu (SCM)</h4>
+          <p>Developer console at <code>yourapp.scm.azurewebsites.net</code></p>
+          <p><strong>Best for:</strong> Real-time debugging, log access, process management, PHP configuration review.</p>
+        </div>
+        <div class="tool-card">
+          <h4>Log Analytics</h4>
+          <p>Query-based log analysis with KQL.</p>
+          <p><strong>Best for:</strong> Historical analysis, custom queries, alerting.</p>
+        </div>
+        <div class="tool-card">
+          <h4>Azure Monitor Metrics</h4>
+          <p>Platform metrics for CPU, memory, requests, etc.</p>
+          <p><strong>Best for:</strong> Real-time monitoring, dashboards, alerts.</p>
+        </div>
+        <div class="tool-card">
+          <h4>PHP-FPM Status Page</h4>
+          <p>Built-in FPM status endpoint showing pool statistics and per-process details.</p>
+          <p><strong>Best for:</strong> Worker pool monitoring, identifying slow processes, queue depth analysis.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Diagnostic Workflow -->
+    <!-- The workflow steps are language-agnostic; the pattern table and -->
+    <!-- deep-dive tools should be updated for each language -->
+    <!-- ================================================================== -->
+    <section id="diagnostic-workflow" class="card">
+      <h2>🔄 Diagnostic Workflow</h2>
+      <p>Follow this workflow when investigating a PHP performance issue:</p>
+
+      <div class="flowchart">
+        <span class="step">Customer Report</span>
+        <span class="arrow">&rarr;</span>
+        <span class="step">Check Metrics</span>
+        <span class="arrow">&rarr;</span>
+        <span class="step">Identify Pattern</span>
+        <span class="arrow">&rarr;</span>
+        <span class="step">Deep Dive</span>
+        <span class="arrow">&rarr;</span>
+        <span class="step">Root Cause</span>
+      </div>
+
+      <h3>Step 1: Initial Assessment</h3>
+      <ol>
+        <li>Check App Service Overview for health status</li>
+        <li>Look at CPU, Memory, Request metrics in Azure Monitor</li>
+        <li>Note the timeframe of the issue</li>
+      </ol>
+
+      <h3>Step 2: Identify the Pattern</h3>
+      <table class="comparison-table">
+        <tr>
+          <th>If You See...</th>
+          <th>Likely Issue</th>
+          <th>Next Step</th>
+        </tr>
+        <tr>
+          <td>High CPU, normal response times</td>
+          <td>CPU-bound processing in background (expected or bug)</td>
+          <td>CPU profiling via Kudu</td>
+        </tr>
+        <tr>
+          <td>High CPU, slow responses</td>
+          <td>CPU starvation in FPM workers</td>
+          <td>Identify hot code path with Xdebug</td>
+        </tr>
+        <tr>
+          <td>Normal CPU, slow ALL responses</td>
+          <td>FPM worker pool exhaustion (request thread blocking)</td>
+          <td>Check FPM status, review blocking operations</td>
+        </tr>
+        <tr>
+          <td>Normal CPU, slow SOME responses</td>
+          <td>External dependency latency or slow query</td>
+          <td>Application Insights dependency view</td>
+        </tr>
+        <tr>
+          <td>Memory growing over time</td>
+          <td>Memory leak (APCu or per-request)</td>
+          <td>APCu analysis, memory profiling</td>
+        </tr>
+        <tr>
+          <td>Sudden 500 errors, worker restarts</td>
+          <td>Crash (fatal error, OOM, or explicit exit)</td>
+          <td>PHP error log, FPM log analysis</td>
+        </tr>
+      </table>
+
+      <h3>Step 3: Deep Dive Tools by Issue</h3>
+      <div class="alert-box success">
+        <strong>🔥 High CPU</strong>
+        <ol style="margin: 0.5rem 0 0; padding-left: 1.25rem;">
+          <li>Kudu Process Explorer &rarr; Identify which PHP processes consume CPU</li>
+          <li>App Service Diagnostics &rarr; CPU Drill Down</li>
+          <li>Profile with Xdebug cachegrind or Blackfire</li>
+        </ol>
+      </div>
+      <div class="alert-box success">
+        <strong>🧵 Request Thread Blocking (FPM Pool Exhaustion)</strong>
+        <ol style="margin: 0.5rem 0 0; padding-left: 1.25rem;">
+          <li>Check PHP-FPM status page for active/idle worker counts</li>
+          <li>Review FPM slow log for requests exceeding threshold</li>
+          <li>Look for blocking operations: <code>sleep()</code>, <code>file_get_contents()</code> on slow URLs, unoptimized queries</li>
+        </ol>
+      </div>
+      <div class="alert-box success">
+        <strong>📊 Memory Leak</strong>
+        <ol style="margin: 0.5rem 0 0; padding-left: 1.25rem;">
+          <li>Check APCu usage via <code>apcu_cache_info()</code></li>
+          <li>Monitor per-worker RSS with <code>ps aux | grep php-fpm</code></li>
+          <li>Enable Xdebug memory profiling to track allocations</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Kudu Console Commands -->
+    <!-- Update commands for each language runtime -->
+    <!-- ================================================================== -->
+    <section id="kudu-console" class="card">
+      <h2>🖥️ Kudu Console Commands</h2>
+      <p>Useful commands when connected to Kudu (SCM) console:</p>
+
+      <h3>Process Information</h3>
+      <pre><code># List PHP-FPM processes
+ps aux | grep php-fpm
+
+# List background PHP worker processes
+ps aux | grep "php workers"
+
+# Show memory usage
+free -m
+
+# CPU and memory in real-time for PHP processes
+top -p $(pgrep -d, -f php)</code></pre>
+
+      <h3>PHP Configuration</h3>
+      <pre><code># Show PHP version and modules
+php -v
+php -m
+
+# Show specific PHP settings
+php -i | grep memory_limit
+php -i | grep max_execution_time
+
+# Check if APCu is available
+php -r "echo extension_loaded('apcu') ? 'APCu loaded' : 'APCu not available';"
+
+# Show APCu memory usage
+php -r "print_r(apcu_sma_info());"</code></pre>
+
+      <h3>PHP-FPM Status</h3>
+      <pre><code># Check FPM pool status (if status page enabled)
+curl http://localhost/status?full
+
+# Check FPM configuration
+cat /usr/local/etc/php-fpm.d/www.conf | grep -E "^(pm\.|listen)"
+
+# View FPM slow log
+cat /var/log/php-fpm/slow.log</code></pre>
+
+      <h3>Log Analysis</h3>
+      <pre><code># View PHP error log
+tail -100 /home/LogFiles/php_errors.log
+
+# Search for errors in application logs
+grep -i "error\|fatal\|exception" /home/LogFiles/*.log
+
+# Watch logs in real-time
+tail -f /home/LogFiles/php_errors.log
+
+# View Nginx access/error logs
+tail -100 /home/LogFiles/nginx/error.log
+tail -100 /home/LogFiles/nginx/access.log</code></pre>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- PHP Profiling Section -->
+    <!-- This replaces V8 Profiling from the Node.js version -->
+    <!-- For other languages: replace with equivalent profiling tools -->
+    <!-- (e.g., JProfiler for Java, dotnet-trace for .NET) -->
+    <!-- ================================================================== -->
+    <section id="php-profiling" class="card">
+      <h2>🔬 PHP Profiling</h2>
+      <p>PHP has several profiling tools that help identify performance bottlenecks, memory issues, and CPU-intensive code paths. Unlike Node.js's built-in V8 profiler, PHP relies on extensions and external tools.</p>
+
+      <h3>Available Profiling Tools</h3>
+      <ul>
+        <li><strong>Xdebug</strong> &mdash; The most widely used PHP debugger and profiler. Generates cachegrind files for CPU profiling and supports step debugging.</li>
+        <li><strong>Blackfire</strong> &mdash; Commercial profiling tool with a web UI for flame graphs and call trees. Minimal production overhead.</li>
+        <li><strong>Tideways</strong> &mdash; Production-safe profiler with timeline visualization and alerting.</li>
+        <li><strong>Built-in functions</strong> &mdash; <code>memory_get_usage()</code>, <code>memory_get_peak_usage()</code>, <code>microtime(true)</code> for manual instrumentation.</li>
+      </ul>
+
+      <h3>Method 1: Xdebug Profiling (Cachegrind)</h3>
+      <p>Xdebug can generate cachegrind-compatible output that shows time spent in each function.</p>
+
+      <h4>Step 1: Enable Profiling</h4>
+      <pre><code># Add to php.ini or .user.ini
+xdebug.mode=profile
+xdebug.output_dir=/tmp/xdebug
+xdebug.profiler_output_name=cachegrind.out.%p.%t
+
+# Or trigger per-request with cookie/query parameter
+xdebug.start_with_request=trigger
+# Then add ?XDEBUG_PROFILE=1 to URL</code></pre>
+
+      <h4>Step 2: Reproduce the Issue</h4>
+      <pre><code># Make requests to generate profile data
+curl "https://your-app.azurewebsites.net/api/slow/test?XDEBUG_PROFILE=1"
+
+# Profile files saved in xdebug.output_dir</code></pre>
+
+      <h4>Step 3: Analyze the Profile</h4>
+      <p>Open cachegrind files with a visualization tool:</p>
+      <ul>
+        <li><strong>KCacheGrind</strong> (Linux) or <strong>QCacheGrind</strong> (Windows/Mac) &mdash; Visual call graph and flame chart</li>
+        <li><strong>Webgrind</strong> &mdash; Web-based cachegrind viewer</li>
+        <li><strong>PhpStorm</strong> &mdash; Built-in cachegrind analysis</li>
+      </ul>
+
+      <h4>Reading the Results</h4>
+      <p>The cachegrind output shows a call tree like this:</p>
+      <pre><code>Inclusive  Self      Calls  Function
+────────────────────────────────────────────
+  95.2%    0.1%      1      main
+  94.8%   94.8%     50      hash_pbkdf2
+   3.1%    3.1%    100      strlen
+   1.2%    1.2%     25      json_encode
+   ...</code></pre>
+      <p>Look for functions with high "Self" percentage&mdash;these are your CPU hotspots.</p>
+
+      <h3>Method 2: Built-in Memory Profiling</h3>
+      <p>PHP provides built-in functions for tracking memory usage without external extensions.</p>
+
+      <pre><code>// Track memory at key points in your code
+$memStart = memory_get_usage(true);
+
+// ... your code here ...
+
+$memEnd = memory_get_usage(true);
+$memPeak = memory_get_peak_usage(true);
+
+error_log(sprintf(
+    "Memory: start=%s, end=%s, peak=%s, delta=%s",
+    formatBytes($memStart),
+    formatBytes($memEnd),
+    formatBytes($memPeak),
+    formatBytes($memEnd - $memStart)
+));</code></pre>
+
+      <h3>Method 3: APCu Cache Analysis</h3>
+      <p>For diagnosing shared memory issues specific to this application:</p>
+
+      <pre><code>// Get APCu statistics
+$info = apcu_cache_info();
+$sma = apcu_sma_info();
+
+echo "Cached entries: " . $info['num_entries'] . "\n";
+echo "Memory used: " . formatBytes($info['mem_size']) . "\n";
+echo "Available memory: " . formatBytes($sma['avail_mem']) . "\n";
+echo "Hits: " . $info['num_hits'] . "\n";
+echo "Misses: " . $info['num_misses'] . "\n";
+
+// List all cached keys
+foreach (new APCUIterator('/^/') as $entry) {
+    echo $entry['key'] . ' => ' . formatBytes($entry['mem_size']) . "\n";
+}</code></pre>
+
+      <h3>Method 4: PHP-FPM Slow Log</h3>
+      <p>PHP-FPM can automatically log stack traces of requests that exceed a time threshold:</p>
+
+      <pre><code># In php-fpm pool config (www.conf)
+request_slowlog_timeout = 5s
+slowlog = /var/log/php-fpm/slow.log
+
+# Output shows stack trace of slow request:
+[pool www] pid 12345
+script_filename = /home/site/wwwroot/public/index.php
+[0x00007f...] hash_pbkdf2() /home/site/wwwroot/src/Services/BlockingService.php:42
+[0x00007f...] BlockingService->blockThread() /home/site/wwwroot/src/Controllers/BlockingController.php:28
+[0x00007f...] BlockingController->start() /home/site/wwwroot/src/Router.php:95</code></pre>
+      <p>This is invaluable for identifying what's blocking FPM workers in production without enabling full profiling.</p>
+
+      <h3>Azure-Specific Considerations</h3>
+      <ul>
+        <li><strong>Kudu SSH</strong> &mdash; Run profiling commands directly via <code>yourapp.scm.azurewebsites.net</code></li>
+        <li><strong>.user.ini</strong> &mdash; PHP settings in <code>/home/site/wwwroot/.user.ini</code> are picked up by FPM without restart</li>
+        <li><strong>Extension availability</strong> &mdash; Xdebug may not be installed on the blessed image; check with <code>php -m</code></li>
+        <li><strong>File Download</strong> &mdash; Use Kudu's file browser or <code>az webapp log download</code> to retrieve profile files</li>
+        <li><strong>Production Impact</strong> &mdash; Xdebug profiling adds significant overhead; use trigger mode or Blackfire for production</li>
+        <li><strong>APCu availability</strong> &mdash; Verify APCu is loaded; the blessed image may need custom startup to enable it</li>
+      </ul>
+
+      <div class="alert-box info">
+        <strong>💡 Quick Reference</strong>
+        <ul style="margin: 0.5rem 0 0; padding-left: 1.25rem;">
+          <li><strong>CPU slow?</strong> &rarr; Use Xdebug cachegrind or Blackfire to find hot functions</li>
+          <li><strong>Memory growing?</strong> &rarr; Check APCu usage and per-worker RSS; use <code>memory_get_usage()</code></li>
+          <li><strong>Workers blocked?</strong> &rarr; Enable FPM slow log to capture stack traces of blocking requests</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Application Insights Queries -->
+    <!-- KQL queries are mostly language-agnostic; update custom metric names -->
+    <!-- ================================================================== -->
+    <section id="app-insights" class="card">
+      <h2>📊 Application Insights Queries</h2>
+      <p>Useful KQL queries for diagnosing PHP issues:</p>
+
+      <h3>Slow Requests</h3>
+      <pre><code>requests
+| where timestamp > ago(1h)
+| where duration > 5000
+| summarize count() by bin(timestamp, 5m), name
+| render timechart</code></pre>
+
+      <h3>Failed Requests</h3>
+      <pre><code>requests
+| where timestamp > ago(1h)
+| where success == false
+| summarize count() by resultCode, name
+| order by count_ desc</code></pre>
+
+      <h3>Exception Breakdown</h3>
+      <pre><code>exceptions
+| where timestamp > ago(24h)
+| summarize count() by type, outerMessage
+| order by count_ desc</code></pre>
+
+      <h3>Dependency Latency</h3>
+      <pre><code>dependencies
+| where timestamp > ago(1h)
+| summarize avg(duration), percentile(duration, 95) by name
+| order by avg_duration desc</code></pre>
+
+      <h3>PHP-FPM Worker Pool Metric (if instrumented)</h3>
+      <pre><code>customMetrics
+| where name == "FpmWorkersBusy"
+| summarize avg(value), max(value) by bin(timestamp, 1m)
+| render timechart</code></pre>
+
+      <h3>PHP Fatal Errors</h3>
+      <pre><code>traces
+| where timestamp > ago(1h)
+| where message has "Fatal error" or message has "Allowed memory"
+| project timestamp, message, severityLevel
+| order by timestamp desc</code></pre>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- Azure Load Testing Section -->
+    <!-- Load test endpoint parameters may differ by language; update the -->
+    <!-- parameter descriptions and scenario tuning table -->
+    <!-- ================================================================== -->
+    <section id="load-testing" class="card">
+      <h2>&#x1f52c; Azure Load Testing</h2>
+      <p>The Performance Problem Simulator includes a dedicated load testing endpoint designed for use with Azure Load Testing. This endpoint simulates realistic application behavior that degrades gracefully under load.</p>
+
+      <h3>Load Test Endpoint</h3>
+      <p>The <code>/api/loadtest</code> endpoint is designed to:</p>
+      <ul>
+        <li>Perform sustained CPU work (interleaved <code>hash_pbkdf2()</code> cycles)</li>
+        <li>Hold memory buffers for entire request duration (creates visible memory pressure)</li>
+        <li>Degrade gracefully as concurrent requests increase (soft limit pattern)</li>
+        <li>Throw random exceptions after 120 seconds (20% probability)</li>
+        <li>Eventually trigger Azure's 230-second timeout under extreme load</li>
+      </ul>
+
+      <h3>Setting Up Azure Load Testing</h3>
+      <ol>
+        <li>In the Azure Portal, create an <strong>Azure Load Testing</strong> resource</li>
+        <li>Create a new test and configure the target URL using one of these options:</li>
+      </ol>
+
+      <h4>GET with Query Parameters</h4>
+      <p>Use the target URL directly &mdash; no JMeter script required:</p>
+      <pre><code># With defaults
+https://your-app.azurewebsites.net/api/loadtest
+
+# Custom parameters
+https://your-app.azurewebsites.net/api/loadtest?workIterations=2000&amp;bufferSizeKb=50000
+
+# FPM pool only (no CPU work)
+https://your-app.azurewebsites.net/api/loadtest?workIterations=0&amp;bufferSizeKb=100</code></pre>
+      <p><strong>Query Parameters:</strong></p>
+      <ul>
+        <li><code>workIterations</code> - CPU hash_pbkdf2 iterations per work cycle (default: 700)</li>
+        <li><code>bufferSizeKb</code> - Memory buffer held for request duration in KB (default: 100000)</li>
+        <li><code>baselineDelayMs</code> - Minimum request duration in ms (default: 1000)</li>
+        <li><code>softLimit</code> - Concurrent requests before degradation (default: 20)</li>
+        <li><code>degradationFactor</code> - Delay ms per request over limit (default: 1000)</li>
+      </ul>
+
+      <ol start="3">
+        <li>Configure load pattern (ramp up, steady state, ramp down)</li>
+        <li>Set up Azure Monitor integration to correlate metrics</li>
+      </ol>
+
+      <h3>Understanding the Soft Limit</h3>
+      <p>The soft limit creates a degradation curve where response times increase as concurrent requests exceed the threshold. The degradation formula is:</p>
+      <pre><code>additionalDelay = max(0, concurrent - softLimit) &times; degradationFactor</code></pre>
+      <div class="alert-box info">
+        <strong>Note:</strong> Actual response times will vary based on your Azure App Service tier, PHP-FPM pool size, and other factors. Use Azure Load Testing to establish baseline performance for your specific environment. These example scenarios, and the defaults, are for a Premium0V3 worker. Any other SKU or worker size will need individual tuning.
+      </div>
+
+      <h3>Diagnosing Load Test Results</h3>
+      <h4>1. Application Insights Integration</h4>
+      <ul>
+        <li>Go to <strong>Application Insights</strong> &gt; <strong>Performance</strong></li>
+        <li>Filter by operation name <code>GET /api/loadtest</code></li>
+        <li>Observe response time percentiles (p50, p95, p99)</li>
+        <li>Check failure rates for the 120s+ exception threshold</li>
+      </ul>
+
+      <h4>2. Azure Monitor Metrics</h4>
+      <ul>
+        <li><strong>Requests</strong> - Total request count and rate</li>
+        <li><strong>Response Time</strong> - Average and percentile latencies</li>
+        <li><strong>Http Server Errors</strong> - 5xx errors from random exceptions</li>
+        <li><strong>CPU Percentage</strong> - Should increase with load</li>
+      </ul>
+
+      <h4>3. Load Testing Statistics</h4>
+      <p>Query the stats endpoint during the test:</p>
+      <pre><code>GET /api/loadtest/stats
+
+{
+  "currentConcurrentRequests": 127,
+  "totalRequestsProcessed": 45230,
+  "totalExceptionsThrown": 23,
+  "averageResponseTimeMs": 847.5
+}</code></pre>
+
+      <h3>Request Parameters Reference</h3>
+      <p>Each parameter controls a specific resource independently:</p>
+      <table class="comparison-table">
+        <tr><th>Parameter</th><th>Default</th><th>Resource</th><th>Purpose</th></tr>
+        <tr><td><code>workIterations</code></td><td>700</td><td><strong>CPU</strong></td><td>hash_pbkdf2() iterations per CPU work cycle. Higher = more CPU per cycle.</td></tr>
+        <tr><td><code>bufferSizeKb</code></td><td>100000</td><td><strong>Memory</strong></td><td>Memory buffer held for entire request duration. Creates sustained memory pressure per FPM worker.</td></tr>
+        <tr><td><code>baselineDelayMs</code></td><td>1000</td><td><strong>FPM Worker</strong></td><td>Minimum request duration (ms). CPU work and sleep interleaved throughout, occupying a worker.</td></tr>
+        <tr><td><code>softLimit</code></td><td>20</td><td><strong>Concurrency</strong></td><td>Concurrent requests before degradation. Lower = faster degradation.</td></tr>
+        <tr><td><code>degradationFactor</code></td><td>1000</td><td><strong>Concurrency</strong></td><td>Additional delay (ms) per request over softLimit.</td></tr>
+      </table>
+
+      <h3>Tuning Parameters for Different Scenarios</h3>
+      <p>Complete request parameter examples for various test scenarios:</p>
+      <div class="alert-box info">
+        <strong>Note:</strong> Actual response times will vary based on your Azure App Service tier, PHP-FPM pool size (pm.max_children), and other factors. Use Azure Load Testing to establish baseline performance for your specific environment. These example scenarios, and the defaults, are for a Premium0V3 worker. Any other SKU or worker size will need individual tuning.
+      </div>
+      <table class="comparison-table">
+        <tr><th>Scenario</th><th>workIterations</th><th>bufferSizeKb</th><th>baselineDelayMs</th><th>softLimit</th><th>degradationFactor</th><th>Primary Stress</th></tr>
+        <tr><td>Worker pool only</td><td>0</td><td>10000</td><td>1000</td><td>20</td><td>1000</td><td>FPM pool exhaustion, minimal CPU</td></tr>
+        <tr><td>CPU intensive</td><td>35000</td><td>10000</td><td>0</td><td>400</td><td>50</td><td>High CPU, minimal blocking</td></tr>
+        <tr><td>Memory pressure</td><td>70</td><td>500000</td><td>200</td><td>80</td><td>250</td><td>High memory allocation (500MB/request)</td></tr>
+        <tr><td>Balanced (default)</td><td>700</td><td>100000</td><td>1000</td><td>20</td><td>1000</td><td>Balanced resource consumption</td></tr>
+        <tr><td>High concurrency</td><td>350</td><td>50000</td><td>400</td><td>200</td><td>100</td><td>Gradual degradation under high load</td></tr>
+      </table>
+    </section>
+
+  </main>
+
+  <!-- Right Sidebar: On This Page navigation -->
+  <!-- Update section links when adding/removing sections -->
+  <aside class="docs-right-sidebar">
+    <div class="sidebar-card">
+      <div class="sidebar-title">ON THIS PAGE</div>
+      <ul class="sidebar-links" id="page-nav">
+        <li><a href="#understanding-metrics">📊 Understanding Metrics</a></li>
+        <li><a href="#diagnostic-scenarios">🔍 Diagnostic Scenarios</a></li>
+      </ul>
+      <div class="sidebar-section-label">TOOLS</div>
+      <ul class="sidebar-links" id="page-nav-tools">
+        <li><a href="#azure-tools">🛠️ Azure Tools</a></li>
+        <li><a href="#diagnostic-workflow">🔄 Diagnostic Workflow</a></li>
+        <li><a href="#kudu-console">🖥️ Kudu Console</a></li>
+        <li><a href="#php-profiling">🔬 PHP Profiling</a></li>
+      </ul>
+      <div class="sidebar-section-label">MONITORING</div>
+      <ul class="sidebar-links" id="page-nav-mon">
+        <li><a href="#app-insights">📈 Application Insights</a></li>
+        <li><a href="#load-testing">⚙️ Azure Load Testing</a></li>
+      </ul>
+    </div>
+  </aside>
+  </div><!-- /docs-page-wrapper -->
+
+  <!-- Footer - update app name and version for each implementation -->
+  <footer>
+    <p>Performance Problem Simulator - Educational Tool for Azure App Service Diagnostics</p>
+    <p>Created by <a href="https://speckit.org/" target="_blank">SpecKit</a> in collaboration with <a href="mailto:rhamlett@microsoft.com">Richard Hamlett</a></p>
+    <p id="build-info">Build: Loading...</p>
+  </footer>
+  <script>
+    // Load environment info for SKU badge
+    // API endpoint is the same across all language implementations
+    fetch('/api/health/environment')
+      .then(r => r.json())
+      .then(env => {
+        const badge = document.getElementById('sku-badge');
+        if (badge) badge.textContent = 'SKU: ' + env.sku;
+      })
+      .catch(() => {});
+    
+    // Load build info for footer
+    fetch('/api/health/build')
+      .then(r => r.json())
+      .then(build => {
+        const buildInfo = document.getElementById('build-info');
+        if (buildInfo) buildInfo.textContent = 'Build: ' + build.buildTime;
+      })
+      .catch(() => {});
+
+    // Sidebar drawer toggle - shared across all pages
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarDrawer = document.getElementById('sidebar-drawer');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    function openSidebar() {
+      hamburgerBtn.classList.remove('attention');
+      hamburgerBtn.classList.add('active');
+      sidebarOverlay.classList.add('active');
+      sidebarDrawer.classList.add('active');
+    }
+
+    function closeSidebar() {
+      hamburgerBtn.classList.remove('active');
+      sidebarOverlay.classList.remove('active');
+      sidebarDrawer.classList.remove('active');
+    }
+
+    hamburgerBtn.addEventListener('click', openSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+    sidebarClose.addEventListener('click', closeSidebar);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSidebar();
+    });
+
+    // Scroll-spy: highlight active section in right sidebar
+    (function() {
+      const links = document.querySelectorAll('#page-nav a, #page-nav-tools a, #page-nav-mon a');
+      const sections = [];
+      links.forEach(link => {
+        const id = link.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if (el) sections.push({ id, el, link });
+      });
+      function updateActive() {
+        let current = sections[0];
+        for (const s of sections) {
+          if (s.el.getBoundingClientRect().top <= 100) current = s;
+        }
+        links.forEach(l => l.classList.remove('active'));
+        if (current) current.link.classList.add('active');
+      }
+      window.addEventListener('scroll', updateActive, { passive: true });
+      updateActive();
+    })();
+  </script>
+</body>
+</html>

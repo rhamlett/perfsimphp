@@ -1,0 +1,7 @@
+/vendor/
+/storage/*.json
+/storage/*.log
+*.log
+.env
+.DS_Store
+Thumbs.db

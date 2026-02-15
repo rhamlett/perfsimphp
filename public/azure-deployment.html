@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PORTING NOTE: Update title and branding for target runtime -->
+  <title>Azure Deployment Guide - PerfSimPhp</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .deploy-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+      flex: 1;
+      min-width: 0;
+    }
+    .deploy-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .deploy-header h1 {
+      color: var(--color-primary);
+      margin-bottom: 0.5rem;
+    }
+    .deploy-header p {
+      color: var(--color-text-muted);
+      font-size: 1.1rem;
+    }
+    .card {
+      background: var(--color-card);
+      border-radius: 8px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .card h2 {
+      color: var(--color-primary);
+      border-bottom: 2px solid #edebe9;
+      padding-bottom: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .card h3 {
+      color: var(--color-text);
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .card h4 {
+      color: var(--color-text-muted);
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    .card p, .card li {
+      line-height: 1.6;
+    }
+    .card ul, .card ol {
+      margin: 0.5rem 0 1rem 1.5rem;
+    }
+    .card li {
+      margin-bottom: 0.25rem;
+    }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+    code {
+      background: rgba(0,0,0,0.05);
+      padding: 0.2rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.9em;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid #edebe9;
+      padding: 0.75rem;
+      text-align: left;
+    }
+    th {
+      background: var(--color-bg);
+      font-weight: 600;
+    }
+    .info-box {
+      background: #e6f3ff;
+      border-left: 4px solid #0078d4;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .warning-box {
+      background: #fff4ce;
+      border-left: 4px solid #ff8c00;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .step-number {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      background: var(--color-primary);
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: bold;
+      margin-right: 0.5rem;
+    }
+    .secrets-table td:first-child {
+      font-family: monospace;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="hamburger-btn" class="hamburger-btn attention" aria-label="Open navigation menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <h1>🐘 Performance Problem Simulator - PHP 8.4 on Linux</h1>
+    <span id="sku-badge" class="sku-badge">SKU: Local</span>
+    <nav>
+      <a href="/" class="btn-panel-toggle">🎮 Dashboard</a>
+    </nav>
+  </header>
+
+  <!-- Sidebar Drawer Navigation -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  <aside id="sidebar-drawer" class="sidebar-drawer">
+    <div class="sidebar-header">
+      <h2>🐘 PerfSimPhp</h2>
+      <button id="sidebar-close" class="sidebar-close" aria-label="Close navigation">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Application</div>
+      <a href="/" class="sidebar-nav-item">
+        <span class="nav-icon">🎮</span>
+        <span class="nav-label">Dashboard<span class="nav-desc">Live metrics & controls</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">Documentation</div>
+      <a href="/docs.html" class="sidebar-nav-item">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">Documentation<span class="nav-desc">API reference & guides</span></span>
+      </a>
+      <a href="/azure-diagnostics.html" class="sidebar-nav-item">
+        <span class="nav-icon">☁️</span>
+        <span class="nav-label">Azure Diagnostics<span class="nav-desc">Diagnose issues in App Service</span></span>
+      </a>
+      <a href="/azure-deployment.html" class="sidebar-nav-item active">
+        <span class="nav-icon">🚀</span>
+        <span class="nav-label">Deploy to Azure<span class="nav-desc">GitHub Actions + OIDC setup</span></span>
+      </a>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">External</div>
+      <a href="https://github.com/rhamlett/PerfSimPhp" target="_blank" class="sidebar-nav-item">
+        <span class="nav-icon">🐙</span>
+        <span class="nav-label">GitHub Repository<span class="nav-desc">Source code & issues</span></span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      PerfSimPhp v1.0 &bull; PHP 8.4
+    </div>
+  </aside>
+
+  <div class="docs-page-wrapper">
+  <main class="deploy-container">
+    <div class="deploy-header">
+      <h1>🚀 Azure Deployment Guide</h1>
+      <!-- PORTING NOTE: Update description for target runtime -->
+      <p>Deploy PerfSimPhp to Azure App Service using GitHub Actions with OIDC authentication</p>
+    </div>
+
+    <section id="overview" class="card">
+      <h2>Overview</h2>
+      <p>This guide walks you through deploying PerfSimPhp to Azure App Service using GitHub Actions with OpenID Connect (OIDC) authentication. OIDC eliminates the need to store credentials as secrets.</p>
+      
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Azure subscription with permissions to create resources</li>
+        <li>Azure AD/Entra ID permissions to create App Registrations</li>
+        <li>GitHub account</li>
+        <li>Azure CLI installed (optional, for CLI method)</li>
+      </ul>
+
+      <h3>What You'll Create</h3>
+      <table>
+        <tr><th>Resource</th><th>Purpose</th></tr>
+        <tr><td>Azure App Service</td><td>Hosts the PerfSimPhp application (PHP 8.4 blessed image)</td></tr>
+        <tr><td>Azure AD App Registration</td><td>Identity for GitHub Actions OIDC</td></tr>
+        <tr><td>Federated Credential</td><td>Links GitHub repo to Azure AD</td></tr>
+        <tr><td>Role Assignment</td><td>Grants deployment permissions</td></tr>
+      </table>
+    </section>
+
+    <section id="app-service" class="card">
+      <h2><span class="step-number">1</span> Create Azure App Service</h2>
+      
+      <h3>Option A: Azure Portal</h3>
+      <ol>
+        <li><strong>Navigate to App Services</strong>
+          <ul>
+            <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+            <li>Search for "App Services" and select it</li>
+            <li>Click <strong>+ Create</strong></li>
+          </ul>
+        </li>
+        <li><strong>Configure Basics</strong>
+          <!-- PORTING NOTE: Update runtime stack and name for target runtime -->
+          <table>
+            <tr><th>Setting</th><th>Value</th></tr>
+            <tr><td>Subscription</td><td>Your subscription</td></tr>
+            <tr><td>Resource Group</td><td>Create new or use existing</td></tr>
+            <tr><td>Name</td><td><code>perfsimphp</code> (or your preferred name)</td></tr>
+            <tr><td>Publish</td><td>Code</td></tr>
+            <tr><td>Runtime stack</td><td><strong>PHP 8.4</strong></td></tr>
+            <tr><td>Operating System</td><td><strong>Linux</strong></td></tr>
+            <tr><td>Region</td><td>Your preferred region</td></tr>
+          </table>
+        </li>
+        <li><strong>Configure App Service Plan</strong>
+          <table>
+            <tr><th>Setting</th><th>Recommendation</th></tr>
+            <tr><td>SKU</td><td><strong>Basic B1</strong> or higher</td></tr>
+          </table>
+          <div class="info-box">
+            <!-- PORTING NOTE: PHP uses AJAX polling, not WebSockets. Free tier note updated. -->
+            <strong>💡 Note:</strong> PerfSimPhp uses AJAX polling (no WebSocket required), so the Free (F1) tier works. However, Basic B1 or higher is recommended for better performance and SSH access.
+          </div>
+        </li>
+        <li><strong>Review and Create</strong> &mdash; Click through to create the resource</li>
+      </ol>
+
+      <h3>Option B: Azure CLI</h3>
+      <!-- PORTING NOTE: Update CLI commands for target runtime -->
+      <pre><code># Login to Azure
+az login
+
+# Set variables
+RESOURCE_GROUP="perfsimphp-rg"
+APP_NAME="perfsimphp"
+LOCATION="eastus"
+APP_SERVICE_PLAN="perfsimphp-plan"
+
+# Create resource group
+az group create --name $RESOURCE_GROUP --location $LOCATION
+
+# Create App Service Plan
+az appservice plan create \
+  --name $APP_SERVICE_PLAN \
+  --resource-group $RESOURCE_GROUP \
+  --location $LOCATION \
+  --sku B1 \
+  --is-linux
+
+# Create Web App with PHP 8.4
+az webapp create \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --plan $APP_SERVICE_PLAN \
+  --runtime "PHP:8.4"</code></pre>
+
+      <!-- PORTING NOTE: PHP doesn't need WebSocket config. Instead, configure Nginx and PHP settings. -->
+      <h3>Configure PHP Settings</h3>
+      <p>After creation, configure PHP-specific settings:</p>
+      <ol>
+        <li>Go to your App Service &rarr; <strong>Configuration</strong> &rarr; <strong>General settings</strong></li>
+        <li>Verify the <strong>Startup Command</strong> is empty (uses default Nginx + PHP-FPM)</li>
+        <li>Optionally set <strong>Startup Command</strong> to a custom script if needed</li>
+      </ol>
+      <p>Or via CLI:</p>
+      <pre><code># Set document root to public/ so Nginx serves from the correct directory
+az webapp config set \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --linux-fx-version "PHP|8.4"
+
+# Set the document root (important for front controller pattern)
+az webapp config appsettings set \
+  --name $APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --settings WEBSITES_ENABLE_APP_SERVICE_STORAGE=true</code></pre>
+    </section>
+
+    <section id="app-registration" class="card">
+      <h2><span class="step-number">2</span> Create Azure AD App Registration</h2>
+      <p>GitHub Actions uses OpenID Connect (OIDC) to authenticate with Azure without storing credentials.</p>
+
+      <h3>Create the App Registration</h3>
+      <ol>
+        <li><strong>Navigate to App Registrations</strong>
+          <ul>
+            <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+            <li>Search for "App registrations" and select it</li>
+            <li>Click <strong>+ New registration</strong></li>
+          </ul>
+        </li>
+        <li><strong>Configure Registration</strong>
+          <table>
+            <tr><th>Setting</th><th>Value</th></tr>
+            <tr><td>Name</td><td><code>github-perfsimphp-deploy</code></td></tr>
+            <tr><td>Supported account types</td><td>Accounts in this organizational directory only</td></tr>
+            <tr><td>Redirect URI</td><td>Leave empty</td></tr>
+          </table>
+        </li>
+        <li><strong>Click Register</strong></li>
+      </ol>
+
+      <h3>Record the IDs</h3>
+      <p>From the <strong>Overview</strong> page, copy these values (you'll need them for GitHub secrets):</p>
+      <table class="secrets-table">
+        <tr><th>Value</th><th>GitHub Secret Name</th></tr>
+        <tr><td>Application (client) ID</td><td><code>AZURE_CLIENT_ID</code></td></tr>
+        <tr><td>Directory (tenant) ID</td><td><code>AZURE_TENANT_ID</code></td></tr>
+      </table>
+
+      <h3>Get Subscription ID</h3>
+      <ol>
+        <li>Go to <strong>Subscriptions</strong> in the Azure Portal</li>
+        <li>Select your subscription</li>
+        <li>Copy the <strong>Subscription ID</strong> &rarr; This is <code>AZURE_SUBSCRIPTION_ID</code></li>
+      </ol>
+    </section>
+
+    <section id="federated-credentials" class="card">
+      <h2><span class="step-number">3</span> Configure Federated Credentials</h2>
+      <p>Federated credentials allow GitHub Actions to authenticate without storing secrets.</p>
+
+      <ol>
+        <li><strong>Navigate to your App Registration</strong>
+          <ul>
+            <li>Go to <strong>Certificates &amp; secrets</strong></li>
+            <li>Select <strong>Federated credentials</strong> tab</li>
+            <li>Click <strong>+ Add credential</strong></li>
+          </ul>
+        </li>
+        <li><strong>Configure the Credential</strong>
+          <table>
+            <tr><th>Setting</th><th>Value</th></tr>
+            <tr><td>Federated credential scenario</td><td><strong>GitHub Actions deploying Azure resources</strong></td></tr>
+            <tr><td>Organization</td><td>Your GitHub username or organization</td></tr>
+            <tr><td>Repository</td><td><code>PerfSimPhp</code> (your repo name)</td></tr>
+            <tr><td>Entity type</td><td><strong>Branch</strong></td></tr>
+            <tr><td>GitHub branch name</td><td><code>main</code></td></tr>
+            <tr><td>Name</td><td><code>github-main-branch</code></td></tr>
+          </table>
+        </li>
+        <li><strong>Click Add</strong></li>
+      </ol>
+
+      <div class="info-box">
+        <strong>💡 Note:</strong> If you also want to deploy from pull requests or other branches, add additional federated credentials with the appropriate entity type.
+      </div>
+    </section>
+
+    <section id="permissions" class="card">
+      <h2><span class="step-number">4</span> Grant Azure Permissions</h2>
+      <p>The App Registration needs permission to deploy to your App Service.</p>
+
+      <h3>Assign Contributor Role</h3>
+      <ol>
+        <li><strong>Navigate to your App Service</strong>
+          <ul>
+            <li>Go to <strong>Access control (IAM)</strong></li>
+            <li>Click <strong>+ Add</strong> &rarr; <strong>Add role assignment</strong></li>
+          </ul>
+        </li>
+        <li><strong>Configure Role Assignment</strong>
+          <table>
+            <tr><th>Setting</th><th>Value</th></tr>
+            <tr><td>Role</td><td><strong>Contributor</strong></td></tr>
+            <tr><td>Assign access to</td><td>User, group, or service principal</td></tr>
+            <tr><td>Members</td><td>Search for <code>github-perfsimphp-deploy</code></td></tr>
+          </table>
+        </li>
+        <li><strong>Click Review + assign</strong></li>
+      </ol>
+    </section>
+
+    <section id="github-secrets" class="card">
+      <h2><span class="step-number">5</span> Configure GitHub Secrets</h2>
+
+      <h3>Fork or Clone the Repository</h3>
+      <ol>
+        <li><strong>Fork the Repository</strong>
+          <ul>
+            <li>Go to the <a href="https://github.com/rhamlett/PerfSimPhp" target="_blank">PerfSimPhp repository</a></li>
+            <li>Click <strong>Fork</strong> to create your own copy</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h3>Add GitHub Secrets</h3>
+      <ol>
+        <li><strong>Navigate to Repository Settings</strong>
+          <ul>
+            <li>Go to your repository on GitHub</li>
+            <li>Click <strong>Settings</strong> &rarr; <strong>Secrets and variables</strong> &rarr; <strong>Actions</strong></li>
+            <li>Click <strong>New repository secret</strong></li>
+          </ul>
+        </li>
+        <li><strong>Add the Following Secrets</strong>
+          <table class="secrets-table">
+            <tr><th>Secret Name</th><th>Value</th><th>Description</th></tr>
+            <tr><td>AZURE_CLIENT_ID</td><td><code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code></td><td>App Registration Client ID</td></tr>
+            <tr><td>AZURE_TENANT_ID</td><td><code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code></td><td>Azure AD Directory/Tenant ID</td></tr>
+            <tr><td>AZURE_SUBSCRIPTION_ID</td><td><code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code></td><td>Azure Subscription ID</td></tr>
+          </table>
+        </li>
+      </ol>
+
+      <div class="info-box">
+        <strong>💡 No Client Secret Needed:</strong> OIDC federated credentials eliminate the need to store a client secret. The three IDs above are sufficient.
+      </div>
+
+      <h3>Update Workflow (if needed)</h3>
+      <p>If your App Service name is different from <code>perfsimphp</code>, edit <code>.github/workflows/deploy.yml</code>:</p>
+      <pre><code>env:
+  AZURE_WEBAPP_NAME: your-app-service-name  # Change this
+  PHP_VERSION: '8.4'</code></pre>
+    </section>
+
+    <section id="deploy" class="card">
+      <h2><span class="step-number">6</span> Deploy</h2>
+
+      <h3>Automatic Deployment</h3>
+      <p>Deployment triggers automatically when you push to the <code>main</code> branch:</p>
+      <pre><code>git add .
+git commit -m "Your changes"
+git push origin main</code></pre>
+
+      <h3>Manual Deployment</h3>
+      <ol>
+        <li>Go to your repository on GitHub</li>
+        <li>Click <strong>Actions</strong> tab</li>
+        <li>Select <strong>Deploy to Azure App Service</strong></li>
+        <li>Click <strong>Run workflow</strong> &rarr; <strong>Run workflow</strong></li>
+      </ol>
+
+      <h3>Verify Deployment</h3>
+      <ol>
+        <li><strong>Open the App URL</strong>: <code>https://&lt;your-app-name&gt;.azurewebsites.net</code></li>
+        <!-- PORTING NOTE: PHP uses AJAX polling, not WebSocket -->
+        <li><strong>Verify Dashboard</strong>: Real-time metrics should update via AJAX polling, status should show "Connected"</li>
+        <li><strong>Test Health Endpoint</strong>:
+          <pre><code>curl https://&lt;your-app-name&gt;.azurewebsites.net/api/health</code></pre>
+        </li>
+      </ol>
+    </section>
+
+    <section id="troubleshooting" class="card">
+      <h2>Troubleshooting</h2>
+
+      <!-- PORTING NOTE: Update troubleshooting for target runtime -->
+      <h3>Dashboard Not Updating</h3>
+      <p><strong>Symptoms:</strong> Dashboard shows "Disconnected", charts don't update</p>
+      <p><strong>Solutions:</strong></p>
+      <ul>
+        <li>Check browser console for JavaScript errors</li>
+        <li>Verify <code>/api/metrics</code> endpoint returns data</li>
+        <li>Ensure Nginx is correctly routing API requests to PHP-FPM</li>
+        <li>Check PHP error logs: <code>/var/log/php/error.log</code></li>
+      </ul>
+
+      <h3>OIDC Authentication Fails</h3>
+      <p><strong>Symptoms:</strong> GitHub Actions fails at "Login to Azure" step</p>
+      <p><strong>Check:</strong></p>
+      <ul>
+        <li>Verify all three secrets are set correctly</li>
+        <li>Confirm federated credential subject matches your repo/branch: <code>repo:USERNAME/REPO:ref:refs/heads/main</code></li>
+        <li>Ensure App Registration has Contributor role on the App Service</li>
+      </ul>
+
+      <h3>Application Crashes on Startup</h3>
+      <p><strong>Symptoms:</strong> App shows "Application Error" or doesn't respond</p>
+      <p><strong>Check:</strong></p>
+      <ul>
+        <li>View Log stream in Azure Portal (App Service &rarr; Log stream)</li>
+        <li>Verify the document root is set to <code>/home/site/wwwroot/public</code></li>
+        <li>Check PHP version matches (8.4)</li>
+        <li>Verify Nginx configuration is routing correctly</li>
+        <li>Check for missing PHP extensions (APCu, etc.)</li>
+      </ul>
+
+      <h3>Shared Storage Issues</h3>
+      <p><strong>Symptoms:</strong> Simulations don't persist, metrics show zeros</p>
+      <p><strong>Check:</strong></p>
+      <ul>
+        <li>Verify APCu extension is installed: <code>php -m | grep apcu</code></li>
+        <li>If APCu unavailable, ensure <code>storage/</code> directory is writable</li>
+        <li>Check <code>/home/site/wwwroot/storage/</code> permissions</li>
+      </ul>
+
+      <h3>View Logs</h3>
+      <pre><code># Stream live logs
+az webapp log tail --name $APP_NAME --resource-group $RESOURCE_GROUP
+
+# View deployment logs
+az webapp log deployment show --name $APP_NAME --resource-group $RESOURCE_GROUP
+
+# SSH into the container
+az webapp ssh --name $APP_NAME --resource-group $RESOURCE_GROUP</code></pre>
+    </section>
+
+    <section id="quick-reference" class="card">
+      <h2>Quick Reference &mdash; CLI One-Liner</h2>
+      <p>Complete setup script (customize variables at top):</p>
+      <!-- PORTING NOTE: Update CLI script for target runtime -->
+      <pre><code># Full setup (customize variables at top)
+RESOURCE_GROUP="perfsimphp-rg"
+APP_NAME="perfsimphp"
+LOCATION="eastus"
+GITHUB_REPO="YOUR_USERNAME/PerfSimPhp"
+
+# Create resources
+az group create -n $RESOURCE_GROUP -l $LOCATION
+az appservice plan create -n "${APP_NAME}-plan" -g $RESOURCE_GROUP -l $LOCATION --sku B1 --is-linux
+az webapp create -n $APP_NAME -g $RESOURCE_GROUP -p "${APP_NAME}-plan" --runtime "PHP:8.4"
+
+# Create App Registration and get IDs
+APP_ID=$(az ad app create --display-name "github-${APP_NAME}-deploy" --query appId -o tsv)
+az ad sp create --id $APP_ID
+TENANT_ID=$(az account show --query tenantId -o tsv)
+SUB_ID=$(az account show --query id -o tsv)
+
+# Create federated credential
+az ad app federated-credential create --id $APP_ID --parameters "{
+  \"name\": \"github-main-branch\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"repo:${GITHUB_REPO}:ref:refs/heads/main\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
+
+# Assign permissions
+APP_SERVICE_ID=$(az webapp show -n $APP_NAME -g $RESOURCE_GROUP --query id -o tsv)
+az role assignment create --assignee $APP_ID --role Contributor --scope $APP_SERVICE_ID
+
+# Output secrets for GitHub
+echo "AZURE_CLIENT_ID=$APP_ID"
+echo "AZURE_TENANT_ID=$TENANT_ID"
+echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
+    </section>
+
+  </main>
+
+  <!-- Right Sidebar: On This Page -->
+  <aside class="docs-right-sidebar">
+    <div class="sidebar-card">
+      <div class="sidebar-title">ON THIS PAGE</div>
+      <ul class="sidebar-links" id="page-nav">
+        <li><a href="#overview">🎯 Overview</a></li>
+      </ul>
+      <div class="sidebar-section-label">SETUP STEPS</div>
+      <ul class="sidebar-links" id="page-nav-steps">
+        <li><a href="#app-service">☁️ Create App Service</a></li>
+        <li><a href="#app-registration">📝 App Registration</a></li>
+        <li><a href="#federated-credentials">🔐 Federated Credentials</a></li>
+        <li><a href="#permissions">🛡️ Permissions</a></li>
+        <li><a href="#github-secrets">🔑 GitHub Secrets</a></li>
+        <li><a href="#deploy">🚀 Deploy</a></li>
+      </ul>
+      <div class="sidebar-section-label">REFERENCE</div>
+      <ul class="sidebar-links" id="page-nav-ref">
+        <li><a href="#troubleshooting">🚨 Troubleshooting</a></li>
+        <li><a href="#quick-reference">📋 Quick Reference</a></li>
+      </ul>
+    </div>
+  </aside>
+  </div><!-- /docs-page-wrapper -->
+
+  <footer style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+    <p>PerfSimPhp &mdash; Azure Deployment Guide | <a href="/">Back to Dashboard</a></p>
+  </footer>
+
+  <script>
+    // Load environment info for SKU badge
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(data => {
+        const badge = document.getElementById('sku-badge');
+        if (badge && data.environment) badge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
+      })
+      .catch(() => {});
+
+    // Sidebar drawer toggle
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarDrawer = document.getElementById('sidebar-drawer');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    function openSidebar() {
+      hamburgerBtn.classList.remove('attention');
+      hamburgerBtn.classList.add('active');
+      sidebarOverlay.classList.add('active');
+      sidebarDrawer.classList.add('active');
+    }
+
+    function closeSidebar() {
+      hamburgerBtn.classList.remove('active');
+      sidebarOverlay.classList.remove('active');
+      sidebarDrawer.classList.remove('active');
+    }
+
+    hamburgerBtn.addEventListener('click', openSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+    sidebarClose.addEventListener('click', closeSidebar);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSidebar();
+    });
+
+    // Scroll-spy: highlight active section in right sidebar
+    (function() {
+      const links = document.querySelectorAll('#page-nav a, #page-nav-steps a, #page-nav-ref a');
+      const sections = [];
+      links.forEach(link => {
+        const id = link.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if (el) sections.push({ id, el, link });
+      });
+      function updateActive() {
+        let current = sections[0];
+        for (const s of sections) {
+          if (s.el.getBoundingClientRect().top <= 100) current = s;
+        }
+        links.forEach(l => l.classList.remove('active'));
+        if (current) current.link.classList.add('active');
+      }
+      window.addEventListener('scroll', updateActive, { passive: true });
+      updateActive();
+    })();
+  </script>
+</body>
+</html>
