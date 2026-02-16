@@ -18,10 +18,21 @@ if [ ! -d "$STORAGE_DIR" ]; then
 fi
 chmod 777 "$STORAGE_DIR"
 
-# Copy custom Nginx configuration
-# Note: Oryx copies our 'default' file to /etc/nginx/nginx.conf automatically
-# via the NGINX_CONF_FILE app setting. No manual copy needed here.
-# The startup.sh is passed as the startup command and Oryx appends php-fpm.
+# Copy custom Nginx configuration to replace the stock nginx.conf
+# Our 'default' file is a complete nginx.conf (with events{}, http{}, server{})
+NGINX_CUSTOM="/home/site/wwwroot/default"
+if [ -f "$NGINX_CUSTOM" ]; then
+    cp "$NGINX_CUSTOM" /etc/nginx/nginx.conf
+    echo "Custom nginx.conf installed from $NGINX_CUSTOM"
+    nginx -t 2>&1 && echo "nginx config test: OK" || echo "nginx config test: FAILED"
+    # Reload nginx if it's already running, otherwise it will start with our config
+    if pgrep -x nginx > /dev/null 2>&1; then
+        nginx -s reload
+        echo "nginx reloaded with custom config"
+    fi
+else
+    echo "WARNING: Custom nginx config not found at $NGINX_CUSTOM"
+fi
 
 # Copy .user.ini to the document root (public/) where PHP-FPM reads it
 USER_INI_SRC="/home/site/wwwroot/.user.ini"
