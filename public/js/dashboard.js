@@ -251,6 +251,8 @@ function addEventToLog(event) {
 
   renderLocalEventLog();
 }
+// Expose globally for polling-client.js visibility change handler
+window.addEventToLog = addEventToLog;
 
 /**
  * Renders server-sent events from the polling endpoint.

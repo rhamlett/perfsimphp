@@ -778,8 +778,9 @@ function clearCharts() {
   if (latencyChart) latencyChart.update();
 }
 
-// Expose onProbeLatency globally so polling-client.js can call it
+// Expose functions globally so polling-client.js can call them
 window.chartsOnProbeLatency = onProbeLatency;
+window.chartsClearAll = clearCharts;
 
 // Initialize charts when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {

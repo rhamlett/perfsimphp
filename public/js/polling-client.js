@@ -410,5 +410,43 @@ function getSocket() {
   return null;
 }
 
+// Track when tab was last hidden to detect stale data
+let tabHiddenAt = null;
+const STALE_THRESHOLD_MS = 5000; // Data older than 5s is stale
+
+/**
+ * Handles visibility change events.
+ * When returning to a backgrounded tab, clears stale data and resumes fresh.
+ */
+function handleVisibilityChange() {
+  if (document.hidden) {
+    // Tab is being hidden - record the time
+    tabHiddenAt = Date.now();
+  } else {
+    // Tab is becoming visible again
+    if (tabHiddenAt && (Date.now() - tabHiddenAt) > STALE_THRESHOLD_MS) {
+      // Was hidden long enough that data is stale - reset everything
+      console.log('[polling-client] Tab was backgrounded, clearing stale chart data');
+      
+      // Clear chart data
+      if (typeof window.chartsClearAll === 'function') {
+        window.chartsClearAll();
+      }
+      
+      // Add event log entry about the gap
+      if (typeof window.addEventToLog === 'function') {
+        window.addEventToLog({
+          level: 'info',
+          message: 'Tab was in background - charts reset with fresh data'
+        });
+      }
+    }
+    tabHiddenAt = null;
+  }
+}
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', initSocket);
+
+// Handle tab visibility changes (browser throttles JS when tab is in background)
+document.addEventListener('visibilitychange', handleVisibilityChange);
