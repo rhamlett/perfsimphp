@@ -44,28 +44,20 @@ class BlockingService
         $durationSeconds = $params['durationSeconds'];
         $endTime = microtime(true) + $durationSeconds;
 
-        // Set blocking mode window
-        SharedStorage::set(self::BLOCKING_MODE_KEY, [
-            'endTime' => $endTime,
-            'durationSeconds' => $durationSeconds,
-            'startedAt' => microtime(true),
-            'simulationId' => $simulation['id'],
-        ], $durationSeconds + 60); // TTL slightly longer than duration
-
-        // Create simulation record
+        // Create simulation record first
         $simulation = SimulationTrackerService::createSimulation(
             'REQUEST_BLOCKING',
             ['type' => 'REQUEST_BLOCKING', 'durationSeconds' => $durationSeconds],
             $durationSeconds
         );
 
-        // Update with simulation ID after creation
+        // Set blocking mode window with simulation ID
         SharedStorage::set(self::BLOCKING_MODE_KEY, [
             'endTime' => $endTime,
             'durationSeconds' => $durationSeconds,
             'startedAt' => microtime(true),
             'simulationId' => $simulation['id'],
-        ], $durationSeconds + 60);
+        ], $durationSeconds + 60); // TTL slightly longer than duration
 
         // Log start
         EventLogService::warn(
