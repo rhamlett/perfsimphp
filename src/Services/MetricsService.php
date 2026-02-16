@@ -32,6 +32,7 @@ declare(strict_types=1);
 namespace PerfSimPhp\Services;
 
 use PerfSimPhp\Config;
+use PerfSimPhp\SharedStorage;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\MemoryPressureService;
 use PerfSimPhp\Services\BlockingService;
@@ -111,9 +112,9 @@ class MetricsService
     /**
      * CPU metrics via /proc/stat for real-time measurement.
      *
-     * sys_getloadavg() returns 1/5/15 minute averages which are too slow to
-     * show real-time changes. Instead, we read /proc/stat twice with a small
-     * delay to calculate actual CPU usage over that interval.
+     * Uses APCu to store the previous /proc/stat sample, allowing us to
+     * calculate actual CPU usage delta between requests - similar to how
+     * Node.js and .NET measure CPU in their persistent processes.
      *
      * Falls back to sys_getloadavg() on systems without /proc/stat.
      */
@@ -121,8 +122,8 @@ class MetricsService
     {
         $cpuCount = self::getCpuCount();
         
-        // Try real-time measurement via /proc/stat
-        $usagePercent = self::getRealTimeCpuUsage();
+        // Try real-time measurement via /proc/stat delta
+        $usagePercent = self::getRealTimeCpuUsage($cpuCount);
         
         // Fallback to load average if /proc/stat not available
         if ($usagePercent === null) {
@@ -142,18 +143,52 @@ class MetricsService
         ];
     }
 
+    private const CPU_SAMPLE_KEY = 'perfsim_cpu_sample';
+
     /**
-     * Gets real-time CPU usage using load average.
+     * Gets real-time CPU usage by storing samples in APCu and calculating deltas.
      * 
-     * Note: PHP-FPM has isolated requests, so we can't cache samples across requests.
-     * Load average (1-min) is the best available metric without blocking.
-     * Returns percentage (0-100) or null if not available.
+     * This mimics how Node.js/NET measure CPU - by tracking the delta in CPU
+     * time between two measurement points. We store the previous sample in
+     * APCu shared memory so it persists across PHP-FPM requests.
+     *
+     * @param int $cpuCount Number of CPU cores
+     * @return float|null CPU usage percentage (0-100) or null if unavailable
      */
-    private static function getRealTimeCpuUsage(): ?float
+    private static function getRealTimeCpuUsage(int $cpuCount): ?float
     {
-        // Use load average - no blocking delay needed
-        // Each PHP-FPM request is isolated, so we can't cache samples between requests
-        return null; // Let getCpuMetrics use load average fallback
+        $currentSample = self::readProcStat();
+        if ($currentSample === null) {
+            return null;
+        }
+        
+        $currentSample['timestamp'] = microtime(true);
+        
+        // Get previous sample from shared storage
+        $previousSample = SharedStorage::get(self::CPU_SAMPLE_KEY);
+        
+        // Store current sample for next request
+        SharedStorage::set(self::CPU_SAMPLE_KEY, $currentSample, 60); // 60s TTL
+        
+        // If no previous sample, return null (first request)
+        if ($previousSample === null || !isset($previousSample['total'])) {
+            return null;
+        }
+        
+        // Calculate deltas
+        $totalDelta = $currentSample['total'] - $previousSample['total'];
+        $idleDelta = $currentSample['idle'] - $previousSample['idle'];
+        
+        // Avoid division by zero
+        if ($totalDelta <= 0) {
+            return null;
+        }
+        
+        // CPU usage = (total - idle) / total * 100
+        $usagePercent = (($totalDelta - $idleDelta) / $totalDelta) * 100;
+        
+        // Clamp to 0-100
+        return max(0, min(100, $usagePercent));
     }
 
     /**
