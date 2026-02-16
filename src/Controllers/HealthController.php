@@ -18,15 +18,23 @@ declare(strict_types=1);
 namespace PerfSimPhp\Controllers;
 
 use PerfSimPhp\Config;
+use PerfSimPhp\SharedStorage;
+use PerfSimPhp\Services\SimulationTrackerService;
+use PerfSimPhp\Services\CpuStressService;
+use PerfSimPhp\Services\BlockingService;
 
 class HealthController
 {
     /**
      * GET /api/health
      * Returns service status and basic metrics including environment info.
+     * Also performs startup cleanup on first request after boot.
      */
     public static function index(): array
     {
+        // Run startup cleanup (idempotent - only runs once after boot)
+        self::runStartupCleanup();
+        
         return [
             'status' => 'healthy',
             'timestamp' => date('c'),
@@ -35,6 +43,36 @@ class HealthController
             'runtime' => 'PHP ' . PHP_VERSION,
             'environment' => self::environment(),
         ];
+    }
+
+    /**
+     * Performs one-time startup cleanup to clear stale simulations.
+     * Uses a flag in shared storage to ensure it only runs once per boot.
+     */
+    private static function runStartupCleanup(): void
+    {
+        // Check if cleanup already ran this boot cycle
+        // Use build timestamp as boot identifier (changes on each deploy)
+        $bootId = Config::buildTimestamp() ?: filemtime(__FILE__);
+        $cleanupKey = 'perfsim_startup_cleanup_' . md5((string)$bootId);
+        
+        if (SharedStorage::get($cleanupKey)) {
+            return; // Already ran
+        }
+        
+        // Mark cleanup as done (with 1 hour TTL)
+        SharedStorage::set($cleanupKey, time(), 3600);
+        
+        // Clear all simulation records (workers don't survive restart)
+        SimulationTrackerService::clear();
+        
+        // Kill any orphaned cpu-worker processes
+        CpuStressService::killAllWorkersByName();
+        
+        // Clear blocking mode
+        BlockingService::stop();
+        
+        error_log('[Startup] Cleared stale simulations after boot');
     }
 
     /**

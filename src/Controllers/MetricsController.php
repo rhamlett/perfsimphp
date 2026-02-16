@@ -42,30 +42,19 @@ class MetricsController
      * When simulations are active, this probe performs REAL work that causes
      * REAL latency - no artificial delays. This demonstrates actual performance
      * degradation for educational purposes.
+     * 
+     * Note: CPU stress latency occurs naturally because PHP-FPM workers compete
+     * with cpu-worker processes for CPU time. We don't add extra hash work here.
      */
     public static function probe(): array
     {
         $stats = LoadTestService::getCurrentStats();
         $workDone = [];
         
-        // Perform REAL work based on active simulations
-        // This causes REAL latency that appears in the chart
-        
-        // CPU stress active: Do real CPU work (hash iterations)
-        $cpuSims = SimulationTrackerService::getActiveSimulationsByType('CPU_STRESS');
-        if (count($cpuSims) > 0) {
-            $maxLoad = 0;
-            foreach ($cpuSims as $sim) {
-                $maxLoad = max($maxLoad, $sim['parameters']['targetLoadPercent'] ?? 50);
-            }
-            // Scale iterations based on load percentage (100-1000 iterations)
-            $iterations = (int) (($maxLoad / 100) * 1000);
-            $hash = 'probe';
-            for ($i = 0; $i < $iterations; $i++) {
-                $hash = hash('sha256', $hash);
-            }
-            $workDone['cpu'] = $iterations;
-        }
+        // Note: We no longer do explicit CPU work in probe for CPU_STRESS simulations.
+        // The latency increase during CPU stress is natural - PHP-FPM workers compete
+        // for CPU with the spawned cpu-worker processes. Adding hash work here was
+        // causing 100% CPU after restarts due to stale simulation records.
         
         // Blocking: Check if any blocking simulations are within their time window
         // Unlike CPU stress, blocking is synchronous so we use time window instead of ACTIVE status
@@ -109,7 +98,6 @@ class MetricsController
             ],
             // Debug: show active simulation counts
             '_debug' => [
-                'cpuSimCount' => count($cpuSims ?? []),
                 'blockingActive' => $blockingSimCount > 0,
                 'memorySimCount' => count($memorySims ?? []),
                 'slowSimCount' => count($slowSims ?? []),
