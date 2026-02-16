@@ -19,27 +19,9 @@ fi
 chmod 777 "$STORAGE_DIR"
 
 # Copy custom Nginx configuration
-# Azure PHP 8.x blessed image uses /etc/nginx/conf.d/default.conf
-NGINX_CONF="/home/site/wwwroot/default"
-if [ -f "$NGINX_CONF" ]; then
-    # Detect actual PHP-FPM socket if it exists (override TCP default)
-    FPM_SOCK=$(find /run /var/run -name "*.sock" 2>/dev/null | grep -i php | head -1)
-    if [ -n "$FPM_SOCK" ]; then
-        echo "Found PHP-FPM socket at: $FPM_SOCK"
-        sed "s|fastcgi_pass 127.0.0.1:9000;|fastcgi_pass unix:$FPM_SOCK;|" "$NGINX_CONF" > /tmp/nginx_custom.conf
-        NGINX_CONF=/tmp/nginx_custom.conf
-    fi
-    # Copy to conf.d (primary) and sites-available (backup)
-    cp "$NGINX_CONF" /etc/nginx/conf.d/default.conf
-    cp "$NGINX_CONF" /home/site/default
-    # Remove any conflicting sites-enabled configs
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null
-    echo "Custom Nginx configuration applied to /etc/nginx/conf.d/default.conf"
-    # Reload nginx to pick up the new configuration
-    if command -v nginx &> /dev/null; then
-        nginx -t 2>&1 && nginx -s reload 2>/dev/null && echo "Nginx reloaded successfully" || echo "Nginx reload skipped (not yet running or config error)"
-    fi
-fi
+# Note: Oryx copies our 'default' file to /etc/nginx/nginx.conf automatically
+# via the NGINX_CONF_FILE app setting. No manual copy needed here.
+# The startup.sh is passed as the startup command and Oryx appends php-fpm.
 
 # Copy .user.ini to the document root (public/) where PHP-FPM reads it
 USER_INI_SRC="/home/site/wwwroot/.user.ini"

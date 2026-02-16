@@ -1,6 +1,6 @@
 # PerfSimPhp - Nginx configuration for Azure App Service PHP blessed image
-# This file configures Nginx to route all requests through PHP-FPM
-# via the front controller pattern (public/index.php)
+# This file is copied to /etc/nginx/nginx.conf by Oryx at startup.
+# It MUST be a complete nginx.conf (not just a server block).
 #
 # On Azure App Service Linux (PHP blessed image), set the app setting:
 # NGINX_CONF_FILE = /home/site/wwwroot/default
@@ -8,69 +8,94 @@
 # To duplicate for another PHP app: update root path and
 # fastcgi_pass socket/address if needed
 
-server {
-    listen 8080 default_server;
-    listen [::]:8080 default_server;
-    listen 80;
-    server_name _;
-    
-    # Document root points to public/ directory
-    root /home/site/wwwroot/public;
-    index index.php;
+user nginx;
+worker_processes 1;
+daemon off;
 
-    # Security headers
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
 
-    # Serve static files directly (CSS, JS, HTML, SVG, images)
-    # Falls through to PHP front controller if file doesn't exist
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log off;
+    error_log /dev/stderr;
+
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+        listen 8080 default_server;
+        listen [::]:8080 default_server;
+        server_name _;
+
+        # Document root points to public/ directory
+        root /home/site/wwwroot/public;
+        index index.php;
+
+        # Security headers
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+
+        # Serve static files directly (CSS, JS, HTML, SVG, images)
+        # Falls through to PHP front controller if file doesn't exist
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        # PHP-FPM processing for .php files
+        location ~ \.php$ {
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            include fastcgi_params;
+
+            # Extended timeouts for simulation endpoints
+            # Load test and blocking simulations can run for several minutes
+            fastcgi_read_timeout 300s;
+            fastcgi_send_timeout 300s;
+        }
+
+        # Deny access to hidden files (except .well-known)
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        # Deny access to src/ directory (not in public/ so already protected,
+        # but defense in depth)
+        location ~ ^/src/ {
+            deny all;
+        }
+
+        # Deny access to storage/ directory
+        location ~ ^/storage/ {
+            deny all;
+        }
+
+        # Deny access to vendor/ directory
+        location ~ ^/vendor/ {
+            deny all;
+        }
+
+        # Deny access to workers/ directory
+        location ~ ^/workers/ {
+            deny all;
+        }
+
+        # Gzip compression for text-based responses
+        gzip on;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+        gzip_min_length 1000;
     }
-
-    # PHP-FPM processing for .php files
-    location ~ \.php$ {
-        fastcgi_pass 127.0.0.1:9000;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-        
-        # Extended timeouts for simulation endpoints
-        # Load test and blocking simulations can run for several minutes
-        fastcgi_read_timeout 300s;
-        fastcgi_send_timeout 300s;
-    }
-
-    # Deny access to hidden files (except .well-known)
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-
-    # Deny access to src/ directory (not in public/ so already protected,
-    # but defense in depth)
-    location ~ ^/src/ {
-        deny all;
-    }
-
-    # Deny access to storage/ directory
-    location ~ ^/storage/ {
-        deny all;
-    }
-
-    # Deny access to vendor/ directory
-    location ~ ^/vendor/ {
-        deny all;
-    }
-
-    # Deny access to workers/ directory
-    location ~ ^/workers/ {
-        deny all;
-    }
-
-    # Gzip compression for text-based responses
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
-    gzip_min_length 1000;
 }
