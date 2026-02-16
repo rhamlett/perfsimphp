@@ -31,13 +31,19 @@ if [ -f "$NGINX_CUSTOM" ]; then
         COPIED=true
     fi
     # Fallback: conf.d pattern (some image versions)
-    if [ -d /etc/nginx/conf.d ]; then
+    # ONLY if sites-available was NOT found/used
+    if [ "$COPIED" = false ] && [ -d /etc/nginx/conf.d ]; then
         # Remove default.conf if it exists
         rm -f /etc/nginx/conf.d/default.conf
         
         cp "$NGINX_CUSTOM" /etc/nginx/conf.d/default.conf
         echo "Replaced /etc/nginx/conf.d/default.conf"       
         COPIED=true
+    elif [ "$COPIED" = true ] && [ -d /etc/nginx/conf.d ]; then
+        # If we already copied to sites-available/enabled, ensure default.conf in conf.d is GONE
+        # to prevent "conflicting server name" warnings.
+        rm -f /etc/nginx/conf.d/default.conf
+        echo "Removed potential conflict: /etc/nginx/conf.d/default.conf"
     fi
     if [ "$COPIED" = false ]; then
         echo "WARNING: No nginx include directory found!"
