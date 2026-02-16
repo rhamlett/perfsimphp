@@ -236,7 +236,7 @@ function startEventsPolling() {
 /**
  * Initialize event log on page load.
  * Sets the event counter to current server count so we only show NEW events.
- * Clears the log display for a fresh start.
+ * Clears the log display for a fresh start, then adds connection events.
  */
 function initializeEventLog() {
   fetch('/api/admin/events?limit=50', { cache: 'no-store' })
@@ -254,14 +254,12 @@ function initializeEventLog() {
         window.clearEventLog();
       }
       
-      // Set empty message in DOM
-      const container = document.getElementById('event-log');
-      if (container) {
-        container.innerHTML = '<div class="event-log-empty">No events yet. Start a simulation to see events here.</div>';
+      // Add initial connection events AFTER clearing
+      // These show the user that background monitoring is active
+      if (typeof addEventToLog === 'function') {
+        addEventToLog({ level: 'info', message: 'Dashboard initialized' });
+        addEventToLog({ level: 'success', message: 'Connected to metrics hub' });
       }
-      
-      // DON'T load existing events - start fresh on page load
-      // Only show events that occur while page is open
     })
     .catch(() => {
       // Silent failure for initial event load
