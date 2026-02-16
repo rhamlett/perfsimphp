@@ -79,17 +79,22 @@ class Validation
     /**
      * Validates CPU stress parameters.
      *
+     * @param array|mixed $data Array containing targetLoadPercent and durationSeconds
      * @throws ValidationException if validation fails
      */
-    public static function validateCpuStressParams(mixed $targetLoadPercent, mixed $durationSeconds): array
+    public static function validateCpuStressParams(mixed $data): array
     {
+        if (!is_array($data)) {
+            throw new ValidationException("Invalid CPU stress parameters");
+        }
+
         return [
             'targetLoadPercent' => self::validateInteger(
-                $targetLoadPercent, 'targetLoadPercent',
+                $data['targetLoadPercent'] ?? null, 'targetLoadPercent',
                 Config::MIN_CPU_LOAD_PERCENT, Config::MAX_CPU_LOAD_PERCENT
             ),
             'durationSeconds' => self::validateInteger(
-                $durationSeconds, 'durationSeconds',
+                $data['durationSeconds'] ?? null, 'durationSeconds',
                 Config::MIN_DURATION_SECONDS, Config::maxDurationSeconds()
             ),
         ];
@@ -98,13 +103,18 @@ class Validation
     /**
      * Validates memory pressure parameters.
      *
+     * @param array|mixed $data Array containing sizeMb
      * @throws ValidationException if validation fails
      */
-    public static function validateMemoryPressureParams(mixed $sizeMb): array
+    public static function validateMemoryPressureParams(mixed $data): array
     {
+        if (!is_array($data)) {
+            throw new ValidationException("Invalid memory pressure parameters");
+        }
+
         return [
             'sizeMb' => self::validateInteger(
-                $sizeMb, 'sizeMb',
+                $data['sizeMb'] ?? null, 'sizeMb',
                 Config::MIN_MEMORY_MB, Config::maxMemoryMb()
             ),
         ];
@@ -113,13 +123,18 @@ class Validation
     /**
      * Validates blocking simulation parameters.
      *
+     * @param array|mixed $data Array containing durationSeconds
      * @throws ValidationException if validation fails
      */
-    public static function validateBlockingParams(mixed $durationSeconds): array
+    public static function validateBlockingParams(mixed $data): array
     {
+        if (!is_array($data)) {
+            throw new ValidationException("Invalid blocking parameters");
+        }
+
         return [
             'durationSeconds' => self::validateInteger(
-                $durationSeconds, 'durationSeconds',
+                $data['durationSeconds'] ?? null, 'durationSeconds',
                 Config::MIN_DURATION_SECONDS, Config::maxDurationSeconds()
             ),
         ];

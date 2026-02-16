@@ -45,7 +45,7 @@ class BlockingController
      */
     public static function block(): void
     {
-        $body = Utils::parseJsonBody();
+        $body = Utils::getJsonBody();
         $params = Validation::validateBlockingParams($body);
 
         // This call blocks synchronously for durationSeconds

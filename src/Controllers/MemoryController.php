@@ -31,7 +31,7 @@ class MemoryController
      */
     public static function allocate(): void
     {
-        $body = Utils::parseJsonBody();
+        $body = Utils::getJsonBody();
         $params = Validation::validateMemoryPressureParams($body);
 
         $simulation = MemoryPressureService::allocate($params);

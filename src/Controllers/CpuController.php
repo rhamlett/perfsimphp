@@ -30,7 +30,7 @@ class CpuController
      */
     public static function start(): void
     {
-        $body = Utils::parseJsonBody();
+        $body = Utils::getJsonBody();
         $params = Validation::validateCpuStressParams($body);
 
         $simulation = CpuStressService::start($params);
