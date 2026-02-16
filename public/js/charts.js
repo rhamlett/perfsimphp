@@ -758,18 +758,21 @@ function updateLatencyDisplay() {
 
 /**
  * Clears all chart data.
+ * Uses in-place array clearing (.length = 0) to preserve references
+ * that Chart.js holds to these arrays.
  */
 function clearCharts() {
-  chartData.labels = [];
-  chartData.cpu = [];
-  chartData.memory = [];
-  chartData.eventloop = [];
-  chartData.rss = [];
+  // Clear arrays in-place to preserve Chart.js references
+  chartData.labels.length = 0;
+  chartData.cpu.length = 0;
+  chartData.memory.length = 0;
+  chartData.eventloop.length = 0;
+  chartData.rss.length = 0;
 
-  latencyChartData.labels = [];
-  latencyChartData.values = [];
+  latencyChartData.labels.length = 0;
+  latencyChartData.values.length = 0;
 
-  latencyStats.entries = [];
+  latencyStats.entries.length = 0;
   latencyStats.current = 0;
   latencyStats.critical = 0;
 

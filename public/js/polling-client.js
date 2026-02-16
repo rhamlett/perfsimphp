@@ -425,20 +425,9 @@ function handleVisibilityChange() {
   } else {
     // Tab is becoming visible again
     if (tabHiddenAt && (Date.now() - tabHiddenAt) > STALE_THRESHOLD_MS) {
-      // Was hidden long enough that data is stale - reset everything
-      console.log('[polling-client] Tab was backgrounded, clearing stale chart data');
-      
-      // Clear chart data
+      // Was hidden long enough that data is stale - reset charts silently
       if (typeof window.chartsClearAll === 'function') {
         window.chartsClearAll();
-      }
-      
-      // Add event log entry about the gap
-      if (typeof window.addEventToLog === 'function') {
-        window.addEventToLog({
-          level: 'info',
-          message: 'Tab was in background - charts reset with fresh data'
-        });
       }
     }
     tabHiddenAt = null;
