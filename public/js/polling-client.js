@@ -238,11 +238,6 @@ function startEventsPolling() {
  * This ensures we see the current event history, not just new events.
  */
 function loadExistingEvents() {
-  // Clear existing event log state in dashboard (handles page refresh)
-  if (typeof clearEventLog === 'function') {
-    clearEventLog();
-  }
-  
   fetch('/api/admin/events?limit=50', { cache: 'no-store' })
     .then(response => {
       if (!response.ok) throw new Error('Events fetch failed');
@@ -251,6 +246,18 @@ function loadExistingEvents() {
     .then(data => {
       const events = data.events || [];
       lastEventCount = data.count || events.length;
+      
+      // Clear event log state AFTER fetch completes but BEFORE adding events
+      // This ensures no race condition with dashboard.js initialization
+      if (typeof window.clearEventLog === 'function') {
+        window.clearEventLog();
+      } else {
+        // Fallback: clear DOM directly if dashboard.js hasn't exposed function yet
+        const container = document.getElementById('event-log');
+        if (container) {
+          container.innerHTML = '';
+        }
+      }
       
       // Load events from oldest to newest (reverse since API returns newest-first)
       for (let i = events.length - 1; i >= 0; i--) {

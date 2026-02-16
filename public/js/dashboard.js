@@ -57,6 +57,9 @@ let lastSimulationsJson = ''; // Track last state to avoid unnecessary re-render
  * Called on page load to wire up data flow from polling-client.js.
  */
 function initDashboard() {
+  // Note: Event log clearing is handled by loadExistingEvents() in polling-client.js
+  // to avoid race conditions between the two DOMContentLoaded handlers
+
   // Register callbacks with polling client
   if (typeof onSocketConnected !== 'undefined') {
     // polling-client.js exposes these as global callback setters
