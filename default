@@ -1,103 +1,74 @@
-# PerfSimPhp - Nginx configuration for Azure App Service PHP blessed image
-# This file is copied to /etc/nginx/nginx.conf by Oryx at startup.
-# It MUST be a complete nginx.conf (not just a server block).
+# PerfSimPhp - Nginx site configuration for Azure App Service PHP blessed image
 #
-# On Azure App Service Linux (PHP blessed image), set the app setting:
-# NGINX_CONF_FILE = /home/site/wwwroot/default
+# This file is a SERVER BLOCK only (not a complete nginx.conf).
+# Per Microsoft docs, it is copied to /etc/nginx/sites-available/default
+# by the startup command, overriding the stock site config.
 #
-# To duplicate for another PHP app: update root path and
-# fastcgi_pass socket/address if needed
+# Startup command (set in Azure Portal → General Settings):
+#   /home/site/wwwroot/startup.sh
+#
+# Reference: https://docs.microsoft.com/azure/app-service/configure-language-php?pivots=platform-linux#change-site-root
 
-user nginx;
-worker_processes 1;
-# Note: do NOT use 'daemon off;' here — the Oryx startup script runs
-# 'service nginx start' which expects nginx to daemonize. php-fpm is
-# the foreground process that keeps the container alive.
+server {
+    #proxy_cache cache;
+    #proxy_cache_valid 200 1s;
+    listen 8080;
+    listen [::]:8080;
+    root /home/site/wwwroot/public;
+    index index.php index.html index.htm hostingstart.html;
+    server_name _;
 
-error_log /var/log/nginx/error.log warn;
-pid /var/run/nginx.pid;
+    port_in_redirect off;
 
-events {
-    worker_connections 1024;
-}
+    # Security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
 
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
-
-    access_log off;
-    error_log /dev/stderr;
-
-    sendfile on;
-    keepalive_timeout 65;
-
-    server {
-        listen 8080 default_server;
-        listen [::]:8080 default_server;
-        server_name _;
-
-        # Document root points to public/ directory
-        root /home/site/wwwroot/public;
-        index index.php;
-
-        # Security headers
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "SAMEORIGIN" always;
-
-        # Serve static files directly (CSS, JS, HTML, SVG, images)
-        # Falls through to PHP front controller if file doesn't exist
-        location / {
-            try_files $uri $uri/ /index.php?$query_string;
-        }
-
-        # PHP-FPM processing for .php files
-        location ~ \.php$ {
-            fastcgi_pass 127.0.0.1:9000;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-            include fastcgi_params;
-
-            # Extended timeouts for simulation endpoints
-            # Load test and blocking simulations can run for several minutes
-            fastcgi_read_timeout 300s;
-            fastcgi_send_timeout 300s;
-        }
-
-        # Deny access to hidden files (except .well-known)
-        location ~ /\. {
-            deny all;
-            access_log off;
-            log_not_found off;
-        }
-
-        # Deny access to src/ directory (not in public/ so already protected,
-        # but defense in depth)
-        location ~ ^/src/ {
-            deny all;
-        }
-
-        # Deny access to storage/ directory
-        location ~ ^/storage/ {
-            deny all;
-        }
-
-        # Deny access to vendor/ directory
-        location ~ ^/vendor/ {
-            deny all;
-        }
-
-        # Deny access to workers/ directory
-        location ~ ^/workers/ {
-            deny all;
-        }
-
-        # Gzip compression for text-based responses
-        gzip on;
-        gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
-        gzip_min_length 1000;
+    # Front controller: serve static files, fall through to index.php
+    location / {
+        index index.php index.html index.htm hostingstart.html;
+        try_files $uri $uri/ /index.php?$args;
     }
+
+    # Redirect server error pages to the static page /50x.html
+    location = /50x.html {
+        root /html/;
+    }
+
+    # Disable .git directory
+    location ~ /\.git {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # PHP-FPM processing
+    location ~ [^/]\.php(/|$) {
+        fastcgi_split_path_info ^(.+?\.php)(|/.*)$;
+        fastcgi_pass 127.0.0.1:9000;
+        include fastcgi_params;
+        fastcgi_param HTTP_PROXY "";
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_param QUERY_STRING $query_string;
+        fastcgi_intercept_errors on;
+        fastcgi_connect_timeout         300;
+        fastcgi_send_timeout           3600;
+        fastcgi_read_timeout           3600;
+        fastcgi_buffer_size 128k;
+        fastcgi_buffers 4 256k;
+        fastcgi_busy_buffers_size 256k;
+    }
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+    gzip_min_length 1000;
 }
