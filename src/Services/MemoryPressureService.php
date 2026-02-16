@@ -54,7 +54,7 @@ class MemoryPressureService
         $simulation = SimulationTrackerService::createSimulation(
             'MEMORY_PRESSURE',
             ['type' => 'MEMORY_PRESSURE', 'sizeMb' => $sizeMb],
-            PHP_INT_MAX / 1000 // Effectively infinite — released manually
+            null // No duration — released manually
         );
 
         $id = $simulation['id'];

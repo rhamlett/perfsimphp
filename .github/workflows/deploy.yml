@@ -45,6 +45,9 @@ jobs:
       - name: Create storage directory
         run: mkdir -p storage && chmod 777 storage
 
+      - name: Generate build timestamp
+        run: date -u '+%Y-%m-%d %H:%M:%S UTC' > buildversion.txt
+
       - name: Login to Azure via OIDC
         uses: azure/login@v2
         with:

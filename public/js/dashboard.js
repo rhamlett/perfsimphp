@@ -416,8 +416,10 @@ async function startCpuStress(targetLoadPercent, durationSeconds) {
       body: JSON.stringify({ targetLoadPercent, durationSeconds }),
     });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `CPU stress failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || `CPU stress started: ${targetLoadPercent}% for ${durationSeconds}s` });
+    } else {
+      addEventToLog({ level: 'error', message: `CPU stress failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `CPU stress request failed: ${err.message}` });
@@ -431,8 +433,10 @@ async function stopCpuStress() {
   try {
     const response = await fetch('/api/simulations/cpu/stop', { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Stop CPU stress failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || 'CPU stress stopped' });
+    } else {
+      addEventToLog({ level: 'error', message: `Stop CPU stress failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Stop CPU stress request failed: ${err.message}` });
@@ -453,8 +457,10 @@ async function startMemoryPressure(sizeMb) {
       body: JSON.stringify({ sizeMb }),
     });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Memory allocation failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || `Allocated ${sizeMb}MB memory` });
+    } else {
+      addEventToLog({ level: 'error', message: `Memory allocation failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Memory allocation request failed: ${err.message}` });
@@ -468,8 +474,10 @@ async function releaseMemory() {
   try {
     const response = await fetch('/api/simulations/memory/release', { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Memory release failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || 'Memory released' });
+    } else {
+      addEventToLog({ level: 'error', message: `Memory release failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Memory release request failed: ${err.message}` });
@@ -485,14 +493,17 @@ async function releaseMemory() {
  */
 async function blockRequestThread(durationSeconds) {
   try {
+    addEventToLog({ level: 'info', message: `Blocking request thread for ${durationSeconds}s...` });
     const response = await fetch('/api/simulations/blocking/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ durationSeconds }),
     });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Thread blocking failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || `Thread blocked for ${durationSeconds}s` });
+    } else {
+      addEventToLog({ level: 'error', message: `Thread blocking failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Thread blocking request failed: ${err.message}` });
@@ -515,14 +526,17 @@ async function blockRequestThread(durationSeconds) {
  */
 async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blockingPattern) {
   try {
+    addEventToLog({ level: 'info', message: `Starting slow request: ${delaySeconds}s delay (${blockingPattern})...` });
     const response = await fetch('/api/simulations/slow/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ delaySeconds, intervalSeconds, maxRequests, blockingPattern }),
     });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Slow requests failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || `Slow request completed: ${delaySeconds}s` });
+    } else {
+      addEventToLog({ level: 'error', message: `Slow requests failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Slow requests request failed: ${err.message}` });
@@ -536,8 +550,10 @@ async function stopSlowRequests() {
   try {
     const response = await fetch('/api/simulations/slow/stop', { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) {
-      addEventToLog({ level: 'error', message: `Stop slow requests failed: ${data.error || 'Unknown error'}` });
+    if (response.ok) {
+      addEventToLog({ level: 'success', message: data.message || 'Slow requests stopped' });
+    } else {
+      addEventToLog({ level: 'error', message: `Stop slow requests failed: ${data.error || data.message || 'Unknown error'}` });
     }
   } catch (err) {
     addEventToLog({ level: 'error', message: `Stop slow requests request failed: ${err.message}` });
@@ -680,11 +696,14 @@ async function loadBuildInfo() {
       const data = await response.json();
 
       const buildContainer = document.getElementById('build-info');
-      if (buildContainer && data.version) {
-        buildContainer.innerHTML = `
-          <div class="env-item"><span class="env-label">Version:</span> <span class="env-value">${data.version}</span></div>
-          <div class="env-item"><span class="env-label">App:</span> <span class="env-value">${data.application || 'PerfSimPhp'}</span></div>
-        `;
+      if (buildContainer && data.buildTimestamp) {
+        buildContainer.innerHTML = `Build: ${data.buildTimestamp}`;
+      }
+
+      // Also update sidebar footer
+      const sidebarFooter = document.getElementById('sidebar-footer');
+      if (sidebarFooter && data.buildTimestamp) {
+        sidebarFooter.textContent = `Build: ${data.buildTimestamp}`;
       }
     }
   } catch (err) {

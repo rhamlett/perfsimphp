@@ -60,6 +60,21 @@ class Config
     /** Application name */
     public const APP_NAME = 'PerfSimPhp';
 
+    /** Get build timestamp from buildversion.txt */
+    public static function buildTimestamp(): string
+    {
+        $file = dirname(__DIR__) . '/buildversion.txt';
+        if (file_exists($file)) {
+            return trim(file_get_contents($file));
+        }
+        // Fallback: use index.php modification time
+        $indexFile = dirname(__DIR__) . '/public/index.php';
+        if (file_exists($indexFile)) {
+            return gmdate('Y-m-d H:i:s', filemtime($indexFile)) . ' UTC';
+        }
+        return 'Unknown';
+    }
+
     // =========================================================================
     // DEFAULT SIMULATION PARAMETERS
     // =========================================================================

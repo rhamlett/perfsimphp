@@ -31,7 +31,7 @@ class HealthController
             'status' => 'healthy',
             'timestamp' => date('c'),
             'uptime' => self::getUptime(),
-            'version' => Config::APP_VERSION,
+            'buildTimestamp' => Config::buildTimestamp(),
             'runtime' => 'PHP ' . PHP_VERSION,
         ];
     }
@@ -83,8 +83,7 @@ class HealthController
     public static function build(): array
     {
         return [
-            'version' => Config::APP_VERSION,
-            'buildTime' => date('Y-m-d H:i:s') . ' UTC',
+            'buildTimestamp' => Config::buildTimestamp(),
             'php' => PHP_VERSION,
             'sapi' => PHP_SAPI,
         ];
