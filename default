@@ -2,11 +2,11 @@
 # This file configures Nginx to route all requests through PHP-FPM
 # via the front controller pattern (public/index.php)
 #
-# On Azure App Service Linux (PHP blessed image), place this at:
-# /home/site/default (or configure via NGINX_CONF_FILE app setting)
+# On Azure App Service Linux (PHP blessed image), set the app setting:
+# NGINX_CONF_FILE = /home/site/wwwroot/default
 #
 # To duplicate for another PHP app: update root path and
-# fastcgi_pass socket location if needed
+# fastcgi_pass socket/address if needed
 
 server {
     listen 8080;
@@ -28,7 +28,7 @@ server {
 
     # PHP-FPM processing for .php files
     location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_pass 127.0.0.1:9000;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;

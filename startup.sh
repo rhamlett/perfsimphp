@@ -18,14 +18,23 @@ if [ ! -d "$STORAGE_DIR" ]; then
 fi
 chmod 777 "$STORAGE_DIR"
 
-# Copy custom Nginx configuration if it exists
-# Azure PHP blessed image reads custom config from /home/site/default
+# Copy custom Nginx configuration
+# Azure PHP 8.x blessed image uses /etc/nginx/conf.d/default.conf
 NGINX_CONF="/home/site/wwwroot/default"
 if [ -f "$NGINX_CONF" ]; then
-    cp "$NGINX_CONF" /etc/nginx/sites-available/default
-    cp "$NGINX_CONF" /etc/nginx/sites-enabled/default
+    # Detect actual PHP-FPM socket if it exists (override TCP default)
+    FPM_SOCK=$(find /run /var/run -name "*.sock" 2>/dev/null | grep -i php | head -1)
+    if [ -n "$FPM_SOCK" ]; then
+        echo "Found PHP-FPM socket at: $FPM_SOCK"
+        sed "s|fastcgi_pass 127.0.0.1:9000;|fastcgi_pass unix:$FPM_SOCK;|" "$NGINX_CONF" > /tmp/nginx_custom.conf
+        NGINX_CONF=/tmp/nginx_custom.conf
+    fi
+    # Copy to conf.d (primary) and sites-available (backup)
+    cp "$NGINX_CONF" /etc/nginx/conf.d/default.conf
     cp "$NGINX_CONF" /home/site/default
-    echo "Custom Nginx configuration applied to all locations"
+    # Remove any conflicting sites-enabled configs
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null
+    echo "Custom Nginx configuration applied to /etc/nginx/conf.d/default.conf"
     # Reload nginx to pick up the new configuration
     if command -v nginx &> /dev/null; then
         nginx -t 2>&1 && nginx -s reload 2>/dev/null && echo "Nginx reloaded successfully" || echo "Nginx reload skipped (not yet running or config error)"
