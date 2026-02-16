@@ -19,20 +19,24 @@ COPIED=false
 if [ -f "$NGINX_CUSTOM" ]; then
     # Primary target per Microsoft docs (Sept 2025)
     if [ -d /etc/nginx/sites-available ]; then
+        # Remove existing default if it exists to prevent conflict
+        rm -f /etc/nginx/sites-available/default
+        rm -f /etc/nginx/sites-enabled/default
+        
         cp "$NGINX_CUSTOM" /etc/nginx/sites-available/default
-        echo "Copied nginx site config to /etc/nginx/sites-available/default"
-        COPIED=true
-    fi
-    # Also copy to sites-enabled (per 2021 AZOSS blog post)
-    if [ -d /etc/nginx/sites-enabled ]; then
-        cp "$NGINX_CUSTOM" /etc/nginx/sites-enabled/default
-        echo "Copied nginx site config to /etc/nginx/sites-enabled/default"
+        # Link it to enabled (standard Nginx behavior)
+        ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+        
+        echo "Replaced /etc/nginx/sites-available/default and linked to sites-enabled"   
         COPIED=true
     fi
     # Fallback: conf.d pattern (some image versions)
     if [ -d /etc/nginx/conf.d ]; then
+        # Remove default.conf if it exists
+        rm -f /etc/nginx/conf.d/default.conf
+        
         cp "$NGINX_CUSTOM" /etc/nginx/conf.d/default.conf
-        echo "Copied nginx site config to /etc/nginx/conf.d/default.conf"
+        echo "Replaced /etc/nginx/conf.d/default.conf"       
         COPIED=true
     fi
     if [ "$COPIED" = false ]; then
@@ -42,11 +46,18 @@ if [ -f "$NGINX_CUSTOM" ]; then
     fi
 
     # Test and reload nginx
-    nginx -t 2>&1 && echo "nginx config test: OK" || echo "nginx config test: FAILED"
-    service nginx reload
-    echo "nginx reloaded"
+    if nginx -t; then
+        echo "nginx config test: OK"
+        service nginx reload
+        echo "nginx reloaded"
+    else
+        echo "nginx config test: FAILED"
+        echo "--- Nginx Error Log ---"
+        cat /var/log/nginx/error.log
+    fi
 else
-    echo "WARNING: Custom nginx config not found at $NGINX_CUSTOM"
+    echo "ERROR: Custom nginx config not found at $NGINX_CUSTOM"
+    exit 1
 fi
 
 # --- App initialization ---
