@@ -19,14 +19,16 @@ fi
 chmod 777 "$STORAGE_DIR"
 
 # Copy custom Nginx configuration if it exists
-# The 'default' file in the app root configures front controller routing
+# Azure PHP blessed image reads custom config from /home/site/default
 NGINX_CONF="/home/site/wwwroot/default"
 if [ -f "$NGINX_CONF" ]; then
     cp "$NGINX_CONF" /etc/nginx/sites-available/default
-    echo "Custom Nginx configuration applied"
+    cp "$NGINX_CONF" /etc/nginx/sites-enabled/default
+    cp "$NGINX_CONF" /home/site/default
+    echo "Custom Nginx configuration applied to all locations"
     # Reload nginx to pick up the new configuration
     if command -v nginx &> /dev/null; then
-        nginx -s reload 2>/dev/null && echo "Nginx reloaded successfully" || echo "Nginx reload skipped (not yet running)"
+        nginx -t 2>&1 && nginx -s reload 2>/dev/null && echo "Nginx reloaded successfully" || echo "Nginx reload skipped (not yet running or config error)"
     fi
 fi
 
