@@ -73,7 +73,8 @@ class BlockingService
 
     /**
      * Check if blocking mode is currently active.
-     * If blocking has expired, completes the simulation and logs completion.
+     * If blocking has expired, cleans up the blocking mode key.
+     * (Simulation completion is handled by SimulationTrackerService)
      *
      * @return array|null Blocking mode info if active, null otherwise
      */
@@ -85,20 +86,9 @@ class BlockingService
         }
 
         if (microtime(true) > $mode['endTime']) {
-            // Blocking period has ended - complete the simulation
+            // Blocking period has ended - just clean up the key
+            // SimulationTrackerService will handle marking the simulation as completed
             SharedStorage::delete(self::BLOCKING_MODE_KEY);
-            
-            // Mark simulation as completed and log
-            if (isset($mode['simulationId'])) {
-                SimulationTrackerService::completeSimulation($mode['simulationId']);
-                EventLogService::info(
-                    'SIMULATION_COMPLETED',
-                    "Request thread blocking completed after {$mode['durationSeconds']}s",
-                    $mode['simulationId'],
-                    'REQUEST_BLOCKING'
-                );
-            }
-            
             return null;
         }
 

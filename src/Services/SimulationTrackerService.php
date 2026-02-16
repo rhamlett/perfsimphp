@@ -89,9 +89,19 @@ class SimulationTrackerService
                     // Mark as completed and log
                     $simulations[$id]['status'] = 'COMPLETED';
                     $simulations[$id]['stoppedAt'] = $now;
+                    
+                    // Format completion message based on simulation type
+                    $duration = $sim['parameters']['durationSeconds'] ?? null;
+                    $message = match($sim['type']) {
+                        'REQUEST_BLOCKING' => "Request thread blocking completed" . ($duration ? " after {$duration}s" : ""),
+                        'CPU_STRESS' => "CPU stress simulation completed" . ($duration ? " after {$duration}s" : ""),
+                        'SLOW_REQUEST' => "Slow request simulation completed",
+                        default => "{$sim['type']} simulation completed",
+                    };
+                    
                     EventLogService::info(
                         'SIMULATION_COMPLETED',
-                        "Simulation {$sim['type']} completed (duration ended)",
+                        $message,
                         $id,
                         $sim['type']
                     );
