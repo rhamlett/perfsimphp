@@ -5,32 +5,26 @@
  * =============================================================================
  *
  * PURPOSE:
- *   Simulates the effect of synchronous/blocking operations on a PHP-FPM
- *   worker process. When a worker is blocked, that ONE request is stuck.
- *   If enough workers are blocked simultaneously, the entire FPM pool is
- *   exhausted and ALL new requests queue up.
+ *   Simulates the effect of synchronous/blocking operations (sync-over-async
+ *   antipattern) on request latency. This demonstrates what happens when code
+ *   performs blocking I/O operations like:
+ *   - Synchronous HTTP calls (file_get_contents to external APIs)
+ *   - Blocking database queries without connection pooling
+ *   - Heavy computation on the request thread
  *
  * PHP vs NODE.JS DIFFERENCES:
  *   - In Node.js, blocking the event loop blocks ALL I/O on that process.
  *   - In PHP-FPM, each request gets its own worker process. Blocking one
- *     worker only blocks that single request. Other requests are handled
- *     by other workers in the pool.
- *   - To simulate "everything is blocked," you need to exhaust the FPM
- *     worker pool by sending concurrent blocking requests >= pm.max_children.
- *   - The dashboard probes (client-side XHR) measure response time from
- *     ANY available worker, showing degradation as the pool fills up.
+ *     worker only blocks that single request.
+ *   - To demonstrate the impact, we set a "blocking mode" that causes ALL
+ *     probe requests to perform blocking work, simulating system-wide impact.
  *
  * HOW IT WORKS:
- *   Uses hash_pbkdf2() in a tight loop to block the current PHP-FPM worker.
- *   The response is sent AFTER the blocking completes (same behavior as
- *   the Node.js version). The simulation is synchronous — the HTTP request
- *   hangs until the blocking duration elapses.
- *
- * RENAMED: "Event Loop Blocking" → "Request Thread Blocking"
- *   PHP doesn't have an event loop. The concept maps to blocking a request
- *   handler thread/process, which is how synchronous operations manifest
- *   in PHP applications (e.g., synchronous DB queries, file_get_contents
- *   to slow external services, heavy computation without yielding).
+ *   When blocking is triggered:
+ *   1. A time window is set (current time + duration)
+ *   2. All probe requests during this window perform CPU-intensive work
+ *   3. This causes visible latency spike in the dashboard charts
+ *   4. Demonstrates how sync-over-async patterns degrade system performance
  *
  * @module src/Services/BlockingService.php
  */
@@ -39,21 +33,30 @@ declare(strict_types=1);
 
 namespace PerfSimPhp\Services;
 
+use PerfSimPhp\SharedStorage;
+
 class BlockingService
 {
+    private const BLOCKING_MODE_KEY = 'perfsim_blocking_mode';
+
     /**
-     * Blocks the current PHP-FPM worker for the specified duration.
-     *
-     * This is a SYNCHRONOUS operation — the HTTP response will not be sent
-     * until the blocking duration elapses. The calling controller should
-     * send the response AFTER this method returns.
+     * Start blocking mode for the specified duration.
+     * All probe requests during this window will perform blocking work.
      *
      * @param array{durationSeconds: int} $params
-     * @return array The completed simulation record
+     * @return array The simulation record
      */
     public static function block(array $params): array
     {
         $durationSeconds = $params['durationSeconds'];
+        $endTime = microtime(true) + $durationSeconds;
+
+        // Set blocking mode window
+        SharedStorage::set(self::BLOCKING_MODE_KEY, [
+            'endTime' => $endTime,
+            'durationSeconds' => $durationSeconds,
+            'startedAt' => microtime(true),
+        ], $durationSeconds + 60); // TTL slightly longer than duration
 
         // Create simulation record
         $simulation = SimulationTrackerService::createSimulation(
@@ -62,71 +65,77 @@ class BlockingService
             $durationSeconds
         );
 
-        // Log start — this is a warning because blocking has visible impact
+        // Log start
         EventLogService::warn(
             'SIMULATION_STARTED',
-            "Request thread blocking started for {$durationSeconds}s — this FPM worker will be unresponsive",
+            "Request thread blocking started for {$durationSeconds}s — probe requests will experience latency",
             $simulation['id'],
             'REQUEST_BLOCKING',
-            ['durationSeconds' => $durationSeconds, 'pid' => getmypid()]
+            ['durationSeconds' => $durationSeconds]
         );
 
-        try {
-            // Block the current process
-            self::performBlocking($durationSeconds);
-
-            // Mark as completed
-            SimulationTrackerService::completeSimulation($simulation['id']);
-
-            EventLogService::info(
-                'SIMULATION_COMPLETED',
-                'Request thread blocking completed',
-                $simulation['id'],
-                'REQUEST_BLOCKING'
-            );
-
-            // Return updated simulation
-            return SimulationTrackerService::getSimulation($simulation['id']) ?? $simulation;
-        } catch (\Throwable $e) {
-            SimulationTrackerService::failSimulation($simulation['id']);
-
-            EventLogService::error(
-                'SIMULATION_FAILED',
-                "Request thread blocking failed: {$e->getMessage()}",
-                $simulation['id'],
-                'REQUEST_BLOCKING'
-            );
-
-            throw $e;
-        }
+        return $simulation;
     }
 
     /**
-     * Blocks the current PHP process for the specified duration using
-     * CPU-intensive hash computation.
+     * Check if blocking mode is currently active.
      *
-     * ALGORITHM:
-     *   Tight loop calling hash_pbkdf2() until the duration elapses.
-     *   Each call takes ~5-10ms of pure CPU work, keeping the process
-     *   fully blocked and consuming CPU (unlike sleep() which is idle).
-     *
-     * WHY hash_pbkdf2() AND NOT sleep():
-     *   sleep() puts the process in an idle wait state — CPU usage stays low.
-     *   hash_pbkdf2() performs real CPU work, which:
-     *   1. Shows in sys_getloadavg() and Azure CPU metrics
-     *   2. More accurately simulates a "stuck" computation
-     *   3. Matches the Node.js implementation (pbkdf2Sync)
-     *
-     * @param int $durationSeconds How long to block
+     * @return array|null Blocking mode info if active, null otherwise
      */
-    private static function performBlocking(int $durationSeconds): void
+    public static function getBlockingMode(): ?array
     {
-        $endTime = microtime(true) + $durationSeconds;
-
-        while (microtime(true) < $endTime) {
-            // PBKDF2 with 10,000 iterations: ~5-10ms of CPU-intensive work.
-            // Matches the Node.js cpu-worker.ts implementation.
-            hash_pbkdf2('sha512', 'password', 'salt', 10000, 64, false);
+        $mode = SharedStorage::get(self::BLOCKING_MODE_KEY);
+        if (!$mode || !isset($mode['endTime'])) {
+            return null;
         }
+
+        if (microtime(true) > $mode['endTime']) {
+            // Blocking period has ended
+            SharedStorage::delete(self::BLOCKING_MODE_KEY);
+            return null;
+        }
+
+        return $mode;
+    }
+
+    /**
+     * Perform blocking work if blocking mode is active.
+     * Returns the work done for debugging.
+     *
+     * @return array|null Work done info, or null if not in blocking mode
+     */
+    public static function performBlockingIfActive(): ?array
+    {
+        $mode = self::getBlockingMode();
+        if (!$mode) {
+            return null;
+        }
+
+        // Calculate how much work to do based on remaining time
+        // More aggressive blocking = more iterations
+        $remaining = $mode['endTime'] - microtime(true);
+        $total = $mode['durationSeconds'];
+        $intensity = max(0.5, min(1.0, $remaining / $total)); // 0.5 to 1.0
+
+        // Do CPU-intensive blocking work
+        // ~10-20 iterations of PBKDF2 with 10000 rounds each = 100-400ms latency
+        $iterations = (int) (15 * $intensity);
+        for ($i = 0; $i < $iterations; $i++) {
+            hash_pbkdf2('sha512', 'blocking-probe', 'salt', 10000, 64, false);
+        }
+
+        return [
+            'iterations' => $iterations,
+            'intensity' => round($intensity, 2),
+            'remainingSeconds' => round($remaining, 1),
+        ];
+    }
+
+    /**
+     * Stop blocking mode immediately.
+     */
+    public static function stop(): void
+    {
+        SharedStorage::delete(self::BLOCKING_MODE_KEY);
     }
 }

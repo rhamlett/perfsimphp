@@ -22,6 +22,7 @@ use PerfSimPhp\Services\MetricsService;
 use PerfSimPhp\Services\LoadTestService;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\MemoryPressureService;
+use PerfSimPhp\Services\BlockingService;
 
 class MetricsController
 {
@@ -68,18 +69,11 @@ class MetricsController
         
         // Blocking: Check if any blocking simulations are within their time window
         // Unlike CPU stress, blocking is synchronous so we use time window instead of ACTIVE status
-        $blockingSims = SimulationTrackerService::getSimulationsInTimeWindow('REQUEST_BLOCKING');
-        if (count($blockingSims) > 0) {
-            // Do substantial CPU-bound work that creates visible latency
-            // Each blocking sim in window adds ~100-200ms of real hash computation
-            // Using high PBKDF2 iterations (10000) to match BlockingService
-            $iterations = count($blockingSims) * rand(10, 20);
-            for ($i = 0; $i < $iterations; $i++) {
-                // Same CPU-intensive work that BlockingService uses (10000 iterations each)
-                hash_pbkdf2('sha512', 'blocking-probe', 'salt', 10000, 64, false);
-            }
-            $workDone['blocking'] = $iterations . ' pbkdf2 iterations';
+        $blockingWork = BlockingService::performBlockingIfActive();
+        if ($blockingWork) {
+            $workDone['blocking'] = $blockingWork;
         }
+        $blockingSimCount = $blockingWork ? 1 : 0;
         
         // Memory pressure active: Touch the allocated memory (read it)
         $memorySims = SimulationTrackerService::getActiveSimulationsByType('MEMORY_PRESSURE');
@@ -116,7 +110,7 @@ class MetricsController
             // Debug: show active simulation counts
             '_debug' => [
                 'cpuSimCount' => count($cpuSims ?? []),
-                'blockingSimCount' => count($blockingSims ?? []),
+                'blockingActive' => $blockingSimCount > 0,
                 'memorySimCount' => count($memorySims ?? []),
                 'slowSimCount' => count($slowSims ?? []),
             ],

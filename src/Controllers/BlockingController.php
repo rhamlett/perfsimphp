@@ -5,24 +5,19 @@
  * =============================================================================
  *
  * ENDPOINTS:
- *   POST /api/simulations/blocking → Block this FPM worker (body: durationSeconds)
+ *   POST /api/simulations/blocking → Start blocking mode (body: durationSeconds)
  *
- * BLOCKING BEHAVIOR:
- *   Unlike CPU and memory simulations which start in the background and return
- *   immediately, this endpoint is synchronous. The HTTP response is NOT sent
- *   until the blocking duration elapses. The response time equals the blocking
- *   duration.
+ * PURPOSE:
+ *   Demonstrates the sync-over-async antipattern. When triggered, all subsequent
+ *   probe requests will experience latency for the specified duration. This
+ *   simulates what happens when blocking operations (synchronous I/O, heavy
+ *   computation) tie up request handlers.
  *
- * PHP NOTE:
- *   In PHP-FPM, blocking one worker does NOT block other requests (unlike
- *   Node.js where blocking the event loop blocks everything). To observe
- *   full application blocking, send concurrent blocking requests >= pm.max_children.
- *
- * RENAMED: "Event Loop Blocking" → "Request Thread Blocking"
- *   PHP doesn't have an event loop. This simulates what happens when a
- *   PHP request handler is stuck in synchronous computation (e.g.,
- *   file_get_contents() to a slow external service, synchronous DB query
- *   on a locked table, heavy computation without yielding).
+ * EXAMPLES OF SYNC-OVER-ASYNC IN PHP:
+ *   - file_get_contents() to external APIs instead of async HTTP
+ *   - Synchronous database queries without connection pooling  
+ *   - Heavy computation on the request thread
+ *   - Waiting on file locks or inter-process communication
  *
  * @module src/Controllers/BlockingController.php
  */
@@ -39,28 +34,25 @@ class BlockingController
 {
     /**
      * POST /api/simulations/blocking
-     * Blocks the current PHP-FPM worker for the specified duration.
-     *
-     * WARNING: This request will hang for the full duration before responding.
+     * Starts blocking mode for the specified duration.
+     * All probe requests during this window will experience latency.
      */
     public static function block(): void
     {
         $body = Utils::getJsonBody();
         $params = Validation::validateBlockingParams($body);
 
-        // This call blocks synchronously for durationSeconds
+        // Set blocking mode (returns immediately)
         $simulation = BlockingService::block($params);
 
         echo json_encode([
             'id' => $simulation['id'],
             'type' => $simulation['type'],
-            'message' => "Request thread was blocked for {$params['durationSeconds']}s",
+            'message' => "Blocking mode active for {$params['durationSeconds']}s — probe requests will experience latency",
             'status' => $simulation['status'],
             'startedAt' => $simulation['startedAt'],
-            'stoppedAt' => $simulation['stoppedAt'] ?? null,
-            'actualDurationMs' => isset($simulation['stoppedAt'], $simulation['startedAt'])
-                ? (int) ((strtotime($simulation['stoppedAt']) - strtotime($simulation['startedAt'])) * 1000)
-                : null,
+            'scheduledEndAt' => $simulation['scheduledEndAt'],
+            'durationSeconds' => $params['durationSeconds'],
         ]);
     }
 }
