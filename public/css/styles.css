@@ -1138,6 +1138,16 @@ section h2, section h3 {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+.pattern-description {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
 .slow-status {
   display: none;
   font-size: 0.8rem;
