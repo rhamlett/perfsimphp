@@ -583,8 +583,10 @@ echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
   </aside>
   </div><!-- /docs-page-wrapper -->
 
-  <footer style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
-    <p>PerfSimPhp &mdash; Azure Deployment Guide | <a href="/">Back to Dashboard</a></p>
+  <footer>
+    <p>Performance Problem Simulator &mdash; Educational Tool for Azure App Service Diagnostics</p>
+    <p>Created by <a href="https://speckit.org/" target="_blank">SpecKit</a> in collaboration with <a href="mailto:rhamlett@microsoft.com">Richard Hamlett</a></p>
+    <p id="build-info">Build: Loading...</p>
   </footer>
 
   <script>
@@ -594,6 +596,11 @@ echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
       .then(data => {
         const badge = document.getElementById('sku-badge');
         if (badge && data.environment) badge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
+        // Load build info for footer
+        const buildInfo = document.getElementById('build-info');
+        if (buildInfo && data.buildTimestamp) {
+          buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
       })
       .catch(() => {});
 

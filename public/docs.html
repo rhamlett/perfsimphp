@@ -262,7 +262,7 @@ Content-Type: application/json
       <p>Uses APCu shared memory (or file-based storage) to allocate large strings filled with random data. Data is held in shared storage until explicitly released, visible to all FPM workers. Multiple allocations can coexist (stacking behavior).</p>
 
       <div class="info-box">
-        <strong>🐘 PHP Insight:</strong> Unlike Node.js (single process), PHP-FPM uses multiple worker processes. Memory in APCu is shared across workers. File-based storage creates actual disk usage. The <code>memory_limit</code> INI setting controls per-request memory, but shared storage allocations bypass this limit.
+        <strong>🐘 PHP Insight:</strong> PHP-FPM uses multiple worker processes. Memory in APCu is shared across workers. File-based storage creates actual disk usage. The <code>memory_limit</code> INI setting controls per-request memory, but shared storage allocations bypass this limit.
       </div>
 
       <h3>Usage</h3>
@@ -313,8 +313,7 @@ POST /api/simulations/memory/release</code></pre>
       <p>Performs synchronous <code>hash_pbkdf2()</code> directly inside a PHP-FPM worker process. While the worker is blocked, it cannot handle any other requests. When enough workers are blocked, the entire FPM pool is exhausted and new requests queue at the Nginx level.</p>
 
       <div class="info-box">
-        <!-- PORTING NOTE: Update the comparison insight for target runtime -->
-        <strong>🐘 Key Difference from Node.js:</strong> In Node.js, blocking the event loop freezes ALL requests immediately (single thread). In PHP, blocking one FPM worker only blocks that one request &mdash; you need to exhaust the entire worker pool to see queueing. This mirrors how .NET thread pool exhaustion works.
+        <strong>🐘 PHP Insight:</strong> In PHP, blocking one FPM worker only blocks that one request — you need to exhaust the entire worker pool to see queueing. This is how worker pool exhaustion manifests in request-per-process architectures.
       </div>
 
       <h3>Key Difference from CPU Stress</h3>
@@ -356,7 +355,7 @@ POST /api/simulations/memory/release</code></pre>
       </table>
 
       <div class="info-box">
-        <strong>🐘 PHP vs Node.js:</strong> Node.js's <code>setTimeout</code> is non-blocking (server stays responsive). PHP's <code>sleep()</code> is technically blocking (occupies an FPM worker) but doesn't consume CPU. The <code>cpu_intensive</code> pattern is similar to Node.js's <code>libuv</code> thread pool saturation &mdash; both starve a finite pool of workers.
+        <strong>🐘 PHP Insight:</strong> PHP's <code>sleep()</code> is blocking (occupies an FPM worker) but doesn't consume CPU. The <code>cpu_intensive</code> pattern actively consumes CPU while blocking. Both can starve the finite pool of FPM workers if enough concurrent requests are made.
       </div>
 
       <h3>Usage</h3>
@@ -408,7 +407,6 @@ POST /api/simulations/slow/start
         <li>Testing timeout configurations (PHP max_execution_time, Nginx proxy_read_timeout)</li>
         <li>Simulating FPM worker pool exhaustion</li>
         <li>Understanding PHP-FPM concurrency model</li>
-        <li>Comparing PHP-FPM to Node.js single-threaded model</li>
       </ul>
     </section>
 
@@ -442,7 +440,7 @@ POST /api/simulations/slow/start
       </ul>
 
       <div class="info-box">
-        <strong>🐘 PHP vs Node.js:</strong> In Node.js, a crash kills the entire application (single process). In PHP, a crash only kills one FPM worker &mdash; other workers continue serving requests. The FPM master respawns the crashed worker automatically.
+        <strong>🐘 PHP Insight:</strong> In PHP, a crash only kills one FPM worker — other workers continue serving requests. The FPM master respawns the crashed worker automatically, providing built-in fault isolation.
       </div>
 
       <h3>Diagnostic Tools</h3>
@@ -462,8 +460,7 @@ POST /api/simulations/slow/start
       <h3>What's Covered</h3>
       <ul>
         <li><strong>Understanding Metrics</strong> &mdash; What CPU, memory, FPM workers, and latency metrics mean</li>
-        <!-- PORTING NOTE: Update diagnostic comparisons for target runtime -->
-        <li><strong>PHP vs Node.js vs .NET</strong> &mdash; Key differences in concurrency models and diagnostic approaches</li>
+        <li><strong>PHP-FPM Architecture</strong> — Understanding the worker process model and resource management</li>
         <li><strong>Diagnostic Scenarios</strong> &mdash; Step-by-step walkthroughs for each simulation type</li>
         <li><strong>Azure Tools</strong> &mdash; App Service Diagnostics, Application Insights, Kudu console</li>
         <li><strong>Linux Tools</strong> &mdash; Process monitoring, PHP debugging, network analysis</li>
@@ -624,15 +621,11 @@ https://perfsimphp.azurewebsites.net/api/loadtest?workIterations=0&amp;bufferSiz
       .then(data => {
         const badge = document.getElementById('sku-badge');
         if (badge && data.environment) badge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
-      })
-      .catch(() => {});
-    
-    // Load build info for footer
-    fetch('/api/health')
-      .then(r => r.json())
-      .then(data => {
+        // Load build info for footer
         const buildInfo = document.getElementById('build-info');
-        if (buildInfo) buildInfo.textContent = 'Build: PerfSimPhp v' + (data.version || '1.0');
+        if (buildInfo && data.buildTimestamp) {
+          buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
       })
       .catch(() => {});
 

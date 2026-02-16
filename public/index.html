@@ -270,7 +270,7 @@
              Other runtimes: Adapt to the concurrency model (e.g., Go goroutine, .NET thread pool, etc.) -->
         <div class="control-section eventloop-section">
           <h3>🧵 Request Thread Blocking <span class="info-icon" title="Unlike CPU Stress (background processes), this runs INSIDE a PHP-FPM worker. Each blocked worker cannot serve other requests. Exhaust the pool and ALL requests queue!">⚠️</span></h3>
-          <p class="control-description">Runs hash_pbkdf2() inside a PHP-FPM worker, blocking it from serving other requests. Unlike Node.js event loop blocking, this only blocks the individual worker — exhaust the pool to see queueing.</p>
+          <p class="control-description">Simulates synchronous blocking operations (sync-over-async antipattern). Causes latency spikes for the duration — observe how blocking code degrades overall system performance.</p>
           <div class="eventloop-education">
             <strong>What to observe:</strong>
             <ul>

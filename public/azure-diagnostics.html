@@ -320,7 +320,7 @@
         <div class="metric-box fpmworkers">
           <h4>🧵 FPM Workers Busy</h4>
           <p><strong>What it measures:</strong> Number of PHP-FPM worker processes currently handling requests.</p>
-          <p><strong>Why it matters:</strong> <em>This is the key metric for request thread blocking problems!</em> When all FPM workers are busy with blocking operations, new requests must wait in the queue&mdash;similar to how event loop blocking affects all requests in Node.js.</p>
+          <p><strong>Why it matters:</strong> <em>This is the key metric for request thread blocking problems!</em> When all FPM workers are busy with blocking operations, new requests must wait in the queue.</p>
           <p><strong>Normal range:</strong> Low relative to pm.max_children</p>
           <p><strong>Warning signs:</strong> Equal to pm.max_children means pool exhaustion&mdash;all new requests are queued.</p>
         </div>
@@ -336,7 +336,7 @@
 
       <div class="alert-box info">
         <strong>💡 Key Insight: PHP-FPM Worker Pool</strong>
-        PHP uses a <em>multi-process model</em> via PHP-FPM. Each request gets its own worker process. When you see high FPM Workers Busy, it means the worker pool is being consumed by blocking requests. Unlike Node.js where a single blocked event loop affects all requests, in PHP each blocked worker only affects one request&mdash;but when ALL workers are busy, the entire pool is exhausted and new requests queue.
+        PHP uses a <em>multi-process model</em> via PHP-FPM. Each request gets its own worker process. When you see high FPM Workers Busy, it means the worker pool is being consumed by blocking requests. Each blocked worker only affects one request&mdash;but when ALL workers are busy, the entire pool is exhausted and new requests queue.
       </div>
     </section>
 
@@ -1017,22 +1017,16 @@ https://your-app.azurewebsites.net/api/loadtest?workIterations=0&amp;bufferSizeK
     <p id="build-info">Build: Loading...</p>
   </footer>
   <script>
-    // Load environment info for SKU badge
-    // API endpoint is the same across all language implementations
-    fetch('/api/health/environment')
+    // Load environment info for SKU badge and build info
+    fetch('/api/health')
       .then(r => r.json())
-      .then(env => {
+      .then(data => {
         const badge = document.getElementById('sku-badge');
-        if (badge) badge.textContent = 'SKU: ' + env.sku;
-      })
-      .catch(() => {});
-    
-    // Load build info for footer
-    fetch('/api/health/build')
-      .then(r => r.json())
-      .then(build => {
+        if (badge && data.environment) badge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
         const buildInfo = document.getElementById('build-info');
-        if (buildInfo) buildInfo.textContent = 'Build: ' + build.buildTime;
+        if (buildInfo && data.buildTimestamp) {
+          buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
       })
       .catch(() => {});
 

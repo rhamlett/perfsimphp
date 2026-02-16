@@ -12,13 +12,6 @@
  *   - Blocking database queries without connection pooling
  *   - Heavy computation on the request thread
  *
- * PHP vs NODE.JS DIFFERENCES:
- *   - In Node.js, blocking the event loop blocks ALL I/O on that process.
- *   - In PHP-FPM, each request gets its own worker process. Blocking one
- *     worker only blocks that single request.
- *   - To demonstrate the impact, we set a "blocking mode" that causes ALL
- *     probe requests to perform blocking work, simulating system-wide impact.
- *
  * HOW IT WORKS:
  *   When blocking is triggered:
  *   1. A time window is set (current time + duration)
@@ -56,6 +49,7 @@ class BlockingService
             'endTime' => $endTime,
             'durationSeconds' => $durationSeconds,
             'startedAt' => microtime(true),
+            'simulationId' => $simulation['id'],
         ], $durationSeconds + 60); // TTL slightly longer than duration
 
         // Create simulation record
@@ -64,6 +58,14 @@ class BlockingService
             ['type' => 'REQUEST_BLOCKING', 'durationSeconds' => $durationSeconds],
             $durationSeconds
         );
+
+        // Update with simulation ID after creation
+        SharedStorage::set(self::BLOCKING_MODE_KEY, [
+            'endTime' => $endTime,
+            'durationSeconds' => $durationSeconds,
+            'startedAt' => microtime(true),
+            'simulationId' => $simulation['id'],
+        ], $durationSeconds + 60);
 
         // Log start
         EventLogService::warn(
@@ -79,6 +81,7 @@ class BlockingService
 
     /**
      * Check if blocking mode is currently active.
+     * If blocking has expired, completes the simulation and logs completion.
      *
      * @return array|null Blocking mode info if active, null otherwise
      */
@@ -90,8 +93,20 @@ class BlockingService
         }
 
         if (microtime(true) > $mode['endTime']) {
-            // Blocking period has ended
+            // Blocking period has ended - complete the simulation
             SharedStorage::delete(self::BLOCKING_MODE_KEY);
+            
+            // Mark simulation as completed and log
+            if (isset($mode['simulationId'])) {
+                SimulationTrackerService::completeSimulation($mode['simulationId']);
+                EventLogService::info(
+                    'SIMULATION_COMPLETED',
+                    "Request thread blocking completed after {$mode['durationSeconds']}s",
+                    $mode['simulationId'],
+                    'REQUEST_BLOCKING'
+                );
+            }
+            
             return null;
         }
 
@@ -136,6 +151,18 @@ class BlockingService
      */
     public static function stop(): void
     {
+        $mode = SharedStorage::get(self::BLOCKING_MODE_KEY);
         SharedStorage::delete(self::BLOCKING_MODE_KEY);
+        
+        // Mark simulation as stopped and log
+        if ($mode && isset($mode['simulationId'])) {
+            SimulationTrackerService::stopSimulation($mode['simulationId']);
+            EventLogService::info(
+                'SIMULATION_STOPPED',
+                'Request thread blocking stopped manually',
+                $mode['simulationId'],
+                'REQUEST_BLOCKING'
+            );
+        }
     }
 }
