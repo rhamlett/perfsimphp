@@ -35,6 +35,7 @@ use PerfSimPhp\Config;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\MemoryPressureService;
 use PerfSimPhp\Services\BlockingService;
+use PerfSimPhp\Services\CpuStressService;
 
 class MetricsService
 {
@@ -56,9 +57,16 @@ class MetricsService
     /**
      * Get simulation status for dashboard Active Simulations display.
      * Returns status for each simulation type with 'active' boolean.
+     * Also triggers cleanup of expired simulations and orphaned workers.
      */
     private static function getSimulationsStatus(): array
     {
+        // Trigger cleanup of expired simulations (this also kills CPU workers)
+        SimulationTrackerService::getActiveSimulations();
+        
+        // Clean up any orphaned CPU workers (PIDs without active simulations)
+        CpuStressService::cleanupOrphanedWorkers();
+        
         // CPU stress simulations
         $cpuSims = SimulationTrackerService::getActiveSimulationsByType('CPU_STRESS');
         $cpuActive = count($cpuSims) > 0;

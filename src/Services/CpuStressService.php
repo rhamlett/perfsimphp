@@ -136,14 +136,9 @@ class CpuStressService
         $numProcesses = max(1, (int) round($baseWorkers * $extraMultiplier));
 
         $workerScript = dirname(__DIR__, 2) . '/workers/cpu-worker.php';
-        $pids = [];
-
-        for ($i = 0; $i < $numProcesses; $i++) {
-            $pid = self::launchBackgroundProcess($workerScript, $durationSeconds);
-            if ($pid !== null) {
-                $pids[] = $pid;
-            }
-        }
+        
+        // Launch all workers in parallel for faster ramp-up
+        $pids = self::launchWorkersParallel($workerScript, $durationSeconds, $numProcesses);
 
         // Store PIDs in shared storage for cross-request access
         SharedStorage::modify(self::PIDS_KEY, function (?array $allPids) use ($simulationId, $pids) {
@@ -153,6 +148,57 @@ class CpuStressService
         }, []);
 
         error_log("[CPU Stress] Launched {$numProcesses} workers (target={$targetLoadPercent}%, cpus={$cpuCount}): PIDs=" . implode(',', $pids));
+    }
+
+    /**
+     * Launches multiple background PHP processes in parallel.
+     * Uses a single shell command to spawn all workers at once for instant ramp-up.
+     *
+     * @param string $script Path to the PHP script
+     * @param int $durationSeconds Duration argument for each worker
+     * @param int $count Number of workers to spawn
+     * @return array Array of PIDs (may be empty on Windows)
+     */
+    private static function launchWorkersParallel(string $script, int $durationSeconds, int $count): array
+    {
+        if ($count <= 0) {
+            return [];
+        }
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            // Windows: spawn all workers in parallel using multiple start commands
+            // Each "start /B" runs independently
+            for ($i = 0; $i < $count; $i++) {
+                $cmd = "start /B php \"{$script}\" {$durationSeconds}";
+                pclose(popen($cmd, 'r'));
+            }
+            return []; // Can't reliably get PIDs on Windows
+        }
+
+        // Linux/macOS: spawn all workers in a single shell command
+        // This launches all processes simultaneously without waiting
+        $commands = [];
+        for ($i = 0; $i < $count; $i++) {
+            // Each worker: nohup php script duration >/dev/null 2>&1 & echo $!
+            $commands[] = "nohup php \"{$script}\" {$durationSeconds} > /dev/null 2>&1 & echo \$!";
+        }
+        
+        // Join with semicolons and execute all at once
+        $fullCmd = implode('; ', $commands);
+        $output = trim((string) shell_exec($fullCmd));
+        
+        // Parse PIDs from output (one per line)
+        $pids = [];
+        if (!empty($output)) {
+            foreach (explode("\n", $output) as $line) {
+                $pid = trim($line);
+                if (is_numeric($pid) && (int)$pid > 0) {
+                    $pids[] = (int) $pid;
+                }
+            }
+        }
+        
+        return $pids;
     }
 
     /**
@@ -211,6 +257,17 @@ class CpuStressService
     }
 
     /**
+     * Public cleanup method for expired simulations.
+     * Called by SimulationTrackerService when a CPU_STRESS simulation expires.
+     *
+     * @param string $simulationId Simulation ID
+     */
+    public static function cleanupWorkers(string $simulationId): void
+    {
+        self::killWorkers($simulationId);
+    }
+
+    /**
      * Kills a single process by PID.
      *
      * @param int $pid Process ID
@@ -263,6 +320,53 @@ class CpuStressService
         $active = self::getActiveSimulations();
         foreach ($active as $simulation) {
             self::stop($simulation['id']);
+        }
+        
+        // Also clean up any orphaned workers
+        self::cleanupOrphanedWorkers();
+    }
+
+    /**
+     * Clean up worker PIDs for simulations that no longer exist or are completed.
+     * This handles cases where:
+     * - App restarted and simulation records were lost
+     * - Simulations were completed but workers weren't killed
+     * - Manual cleanup needed after errors
+     */
+    public static function cleanupOrphanedWorkers(): void
+    {
+        $allPids = SharedStorage::get(self::PIDS_KEY, []);
+        if (empty($allPids)) {
+            return;
+        }
+
+        $activeSimulations = SimulationTrackerService::getActiveSimulationsByType('CPU_STRESS');
+        $activeIds = array_map(fn($s) => $s['id'], $activeSimulations);
+
+        $orphanedIds = [];
+        foreach (array_keys($allPids) as $simId) {
+            if (!in_array($simId, $activeIds, true)) {
+                $orphanedIds[] = $simId;
+            }
+        }
+
+        foreach ($orphanedIds as $simId) {
+            $pids = $allPids[$simId] ?? [];
+            foreach ($pids as $pid) {
+                self::killProcess($pid);
+            }
+            error_log("[CPU Stress] Cleaned up orphaned workers for simulation {$simId}: PIDs=" . implode(',', $pids));
+        }
+
+        // Remove orphaned entries from storage
+        if (!empty($orphanedIds)) {
+            SharedStorage::modify(self::PIDS_KEY, function (?array $allPids) use ($orphanedIds) {
+                $allPids = $allPids ?? [];
+                foreach ($orphanedIds as $simId) {
+                    unset($allPids[$simId]);
+                }
+                return $allPids;
+            }, []);
         }
     }
 

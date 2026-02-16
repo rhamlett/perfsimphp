@@ -24,6 +24,7 @@ namespace PerfSimPhp\Services;
 use PerfSimPhp\Utils;
 use PerfSimPhp\SharedStorage;
 use PerfSimPhp\Config;
+use PerfSimPhp\Services\CpuStressService;
 
 class SimulationTrackerService
 {
@@ -103,7 +104,7 @@ class SimulationTrackerService
             SharedStorage::set(self::STORAGE_KEY, $simulations);
         }
 
-        // Log completion messages
+        // Log completion messages and perform cleanup
         foreach ($toLog as $sim) {
             $duration = $sim['parameters']['durationSeconds'] ?? null;
             $message = match($sim['type']) {
@@ -112,6 +113,11 @@ class SimulationTrackerService
                 'SLOW_REQUEST' => "Slow request simulation completed",
                 default => "{$sim['type']} simulation completed",
             };
+            
+            // Clean up CPU worker processes when simulation expires
+            if ($sim['type'] === 'CPU_STRESS') {
+                CpuStressService::cleanupWorkers($sim['id']);
+            }
             
             EventLogService::success(
                 'SIMULATION_COMPLETED',
