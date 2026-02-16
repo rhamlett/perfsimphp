@@ -23,7 +23,7 @@ class HealthController
 {
     /**
      * GET /api/health
-     * Returns service status and basic metrics.
+     * Returns service status and basic metrics including environment info.
      */
     public static function index(): array
     {
@@ -33,6 +33,7 @@ class HealthController
             'uptime' => self::getUptime(),
             'buildTimestamp' => Config::buildTimestamp(),
             'runtime' => 'PHP ' . PHP_VERSION,
+            'environment' => self::environment(),
         ];
     }
 
@@ -87,11 +88,18 @@ class HealthController
         }
 
         return [
+            // Azure-specific info
             'isAzure' => $isAzure,
             'sku' => $sku ?: ($isAzure ? 'App Service' : 'Local'),
             'siteName' => $websiteSiteName,
             'instanceId' => $websiteInstanceId ? substr($websiteInstanceId, 0, 8) : null,
             'resourceGroup' => $resourceGroup,
+            // Runtime info for dashboard
+            'phpVersion' => PHP_VERSION,
+            'os' => PHP_OS,
+            'hostname' => gethostname() ?: 'unknown',
+            'pid' => getmypid(),
+            'sapi' => PHP_SAPI,
         ];
     }
 

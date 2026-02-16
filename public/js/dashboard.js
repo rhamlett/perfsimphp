@@ -666,6 +666,12 @@ async function loadEnvironmentInfo() {
     if (response.ok) {
       const data = await response.json();
 
+      // Update SKU badge
+      const skuBadge = document.getElementById('sku-badge');
+      if (skuBadge && data.environment) {
+        skuBadge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
+      }
+
       const envContainer = document.getElementById('environment-info');
       if (envContainer && data.environment) {
         const env = data.environment;
