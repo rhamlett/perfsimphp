@@ -15,5 +15,8 @@
     "scripts": {
         "start": "php -S 0.0.0.0:8080 -t public public/index.php",
         "dev": "php -S localhost:8080 -t public public/index.php"
+    },
+    "require-dev": {
+        "jetbrains/phpstorm-stubs": "^2025.3"
     }
 }

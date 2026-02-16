@@ -19,7 +19,7 @@ namespace PerfSimPhp\Controllers;
 use PerfSimPhp\Services\CpuStressService;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Middleware\Validation;
-use PerfSimPhp\Middleware\ErrorHandler;
+use PerfSimPhp\Middleware\NotFoundException;
 use PerfSimPhp\Utils;
 
 class CpuController
@@ -56,18 +56,18 @@ class CpuController
         // Check if simulation exists and is a CPU stress simulation
         $simulation = SimulationTrackerService::getSimulation($id);
         if (!$simulation) {
-            throw new ErrorHandler\NotFoundException('Simulation not found');
+            throw new NotFoundException('Simulation not found');
         }
         if ($simulation['type'] !== 'CPU_STRESS') {
-            throw new ErrorHandler\NotFoundException('Simulation not found (not a CPU stress simulation)');
+            throw new NotFoundException('Simulation not found (not a CPU stress simulation)');
         }
         if ($simulation['status'] !== 'ACTIVE') {
-            throw new ErrorHandler\NotFoundException('Simulation is not active');
+            throw new NotFoundException('Simulation is not active');
         }
 
         $stopped = CpuStressService::stop($id);
         if (!$stopped) {
-            throw new ErrorHandler\NotFoundException('Failed to stop simulation');
+            throw new NotFoundException('Failed to stop simulation');
         }
 
         echo json_encode([
