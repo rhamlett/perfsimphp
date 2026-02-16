@@ -42,6 +42,7 @@ class EventLogService
             'id' => Utils::generateId(),
             'timestamp' => Utils::formatTimestamp(),
             'level' => $level,
+            'workerPid' => getmypid(),
             'simulationId' => $simulationId,
             'simulationType' => $simulationType,
             'event' => $event,

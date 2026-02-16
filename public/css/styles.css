@@ -1448,6 +1448,37 @@ button:disabled {
   margin-right: 0.75rem;
 }
 
+/* Event log entry styles */
+.event-log-entry {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #edebe9;
+}
+
+.event-log-entry:last-child {
+  border-bottom: none;
+}
+
+.event-log-entry.info { color: var(--color-primary); }
+.event-log-entry.success { color: var(--color-success); }
+.event-log-entry.warning { color: var(--color-warning); }
+.event-log-entry.error { color: var(--color-danger); }
+
+.event-time {
+  color: var(--color-text-muted);
+  margin-right: 0.5rem;
+}
+
+.event-icon {
+  margin-right: 0.5rem;
+}
+
+.event-pid {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-left: 0.25rem;
+}
+
 /* --------------------------------------------------------------------------
    Footer
    -------------------------------------------------------------------------- */

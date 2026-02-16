@@ -91,6 +91,7 @@ function initDashboard() {
         message: e.message,
         timestamp: e.timestamp,
         source: 'server',
+        workerPid: e.workerPid || null,
       });
     }
   };
@@ -232,7 +233,7 @@ window.clearEventLog = clearEventLog;
  * Used for client-side events (connection changes, restarts, etc.)
  * and server events received via polling.
  *
- * @param {Object} event - { level: 'info'|'warning'|'error'|'success', message: string, timestamp?: string, source?: string }
+ * @param {Object} event - { level: 'info'|'warning'|'error'|'success', message: string, timestamp?: string, source?: string, workerPid?: number }
  */
 function addEventToLog(event) {
   const entry = {
@@ -240,6 +241,7 @@ function addEventToLog(event) {
     level: event.level || 'info',
     message: event.message,
     source: event.source || 'client',
+    workerPid: event.workerPid || null,
   };
 
   eventLog.unshift(entry);
@@ -273,6 +275,7 @@ function renderEventLog(events) {
     level: e.level || 'info',
     message: e.message,
     source: 'server',
+    workerPid: e.workerPid || null,
   }));
 
   // Combine and sort descending by timestamp
@@ -286,11 +289,12 @@ function renderEventLog(events) {
     const time = formatEventTime(event.timestamp);
     const levelClass = event.level || 'info';
     const levelIcon = getEventLevelIcon(event.level);
+    const pidSuffix = event.workerPid ? ` <span class="event-pid">[w${event.workerPid}]</span>` : '';
 
     return `<div class="event-log-entry ${levelClass}">
       <span class="event-time">${time}</span>
       <span class="event-icon">${levelIcon}</span>
-      <span class="event-message">${escapeHtml(event.message)}</span>
+      <span class="event-message">${escapeHtml(event.message)}${pidSuffix}</span>
     </div>`;
   }).join('');
 }
@@ -309,11 +313,12 @@ function renderLocalEventLog() {
   const time = formatEventTime(latestEvent.timestamp);
   const levelClass = latestEvent.level || 'info';
   const levelIcon = getEventLevelIcon(latestEvent.level);
+  const pidSuffix = latestEvent.workerPid ? ` <span class="event-pid">[w${latestEvent.workerPid}]</span>` : '';
 
   const entryHtml = `<div class="event-log-entry ${levelClass}">
     <span class="event-time">${time}</span>
     <span class="event-icon">${levelIcon}</span>
-    <span class="event-message">${escapeHtml(latestEvent.message)}</span>
+    <span class="event-message">${escapeHtml(latestEvent.message)}${pidSuffix}</span>
   </div>`;
 
   const emptyMsg = container.querySelector('.event-log-empty');
