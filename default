@@ -10,7 +10,9 @@
 
 user nginx;
 worker_processes 1;
-daemon off;
+# Note: do NOT use 'daemon off;' here — the Oryx startup script runs
+# 'service nginx start' which expects nginx to daemonize. php-fpm is
+# the foreground process that keeps the container alive.
 
 error_log /var/log/nginx/error.log warn;
 pid /var/run/nginx.pid;
