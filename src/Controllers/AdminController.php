@@ -22,6 +22,7 @@ use PerfSimPhp\Config;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\EventLogService;
 use PerfSimPhp\Services\MetricsService;
+use PerfSimPhp\Services\BlockingService;
 
 class AdminController
 {
@@ -80,8 +81,11 @@ class AdminController
      */
     public static function events(): void
     {
-        // Trigger cleanup of expired simulations (logs completion events)
-        // This runs on event poll (every 2s) so completions appear promptly
+        // Trigger cleanup of expired blocking mode (logs completion event)
+        // Must be called BEFORE getting events so the completion event is included
+        BlockingService::getBlockingMode();
+        
+        // Trigger cleanup of other expired simulations
         SimulationTrackerService::getActiveSimulations();
         
         $limit = 50;
