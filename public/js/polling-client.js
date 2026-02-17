@@ -7,9 +7,15 @@
  *   Manages real-time data updates from the PHP backend via AJAX polling.
  *   PHP-FPM does not support persistent WebSocket connections natively,
  *   so this client polls REST endpoints at regular intervals:
- *   - /api/metrics        → System metrics updates (~500ms)
- *   - /api/admin/events   → Event log entries (~2s)
- *   - /api/metrics/probe  → Latency measurement via XHR timing (~100ms)
+ *   - /api/metrics                → System metrics updates (~250ms)
+ *   - /api/admin/events           → Event log entries (~2s)
+ *   - /api/metrics/internal-probes → Batch latency measurement (~500ms)
+ *
+ *   LATENCY PROBING STRATEGY:
+ *   To reduce AppLens traffic, latency probes use internal batch probing.
+ *   The server performs multiple curl requests to localhost:8080 internally,
+ *   which bypass Azure's stamp frontend. This provides ~10 latency samples/sec
+ *   while only generating ~2 external requests/sec visible in AppLens.
  *
  * SCRIPT LOADING ORDER:
  *   This file must be loaded BEFORE dashboard.js and charts.js in index.html.
@@ -17,8 +23,7 @@
  *   those files implement. This is a simple dependency injection via globals.
  *
  * CONNECTION STRATEGY:
- *   - Uses XMLHttpRequest for latency probes (precise timing)
- *   - Uses fetch() for metrics and events (cleaner API)
+ *   - Uses fetch() for all polling (metrics, events, batch probes)
  *   - Detects connection loss via failed requests
  *   - Auto-reconnects by resuming polling after failures
  *
@@ -38,7 +43,11 @@ const maxReconnectAttempts = 10;
 // Polling intervals (milliseconds)
 const METRICS_POLL_INTERVAL = 250;
 const EVENTS_POLL_INTERVAL = 2000;
-const PROBE_POLL_INTERVAL = 100;
+// Internal batch probe interval - server does 5 probes @ 100ms each internally
+// This results in ~10 latency samples/sec while only 2 external requests/sec hit AppLens
+const PROBE_POLL_INTERVAL = 500;
+const INTERNAL_PROBE_COUNT = 5;
+const INTERNAL_PROBE_INTERVAL = 100;
 
 // Session probe mode - when enabled, probes use session endpoint (blocks if session locked)
 let sessionProbeEnabled = false;
@@ -314,8 +323,9 @@ function pollEventsOnce() {
 // ============================================================================
 
 /**
- * Starts probing /api/metrics/probe at the configured interval.
- * Uses XMLHttpRequest for precise timing measurement.
+ * Starts batch probing via /api/metrics/internal-probes at the configured interval.
+ * The server performs multiple internal curl probes to localhost:8080, which
+ * bypass Azure's stamp frontend and don't appear in AppLens metrics.
  */
 function startProbePolling() {
   if (probePollTimer) clearInterval(probePollTimer);
@@ -324,74 +334,61 @@ function startProbePolling() {
 }
 
 /**
- * Sends a single latency probe using XMLHttpRequest for timing accuracy.
- * When sessionProbeEnabled is true, uses session endpoint to demonstrate lock contention.
+ * Fetches a batch of internal latency probes from the server.
+ * The server does multiple curl requests to localhost:8080/api/metrics/probe,
+ * avoiding the stamp frontend while still measuring real PHP-FPM latency.
+ * When sessionProbeEnabled is true, probes use session endpoint to test lock contention.
  */
 function probeOnce() {
-  const startTime = performance.now();
+  // Build URL with batch parameters
+  const params = new URLSearchParams({
+    count: INTERNAL_PROBE_COUNT.toString(),
+    interval: INTERNAL_PROBE_INTERVAL.toString(),
+    session: sessionProbeEnabled.toString(),
+    t: Date.now().toString(),
+  });
+  const probeUrl = '/api/metrics/internal-probes?' + params.toString();
 
-  const xhr = new XMLHttpRequest();
-  // Use session probe endpoint when testing session lock contention
-  const probeUrl = sessionProbeEnabled 
-    ? '/api/simulations/session/probe?t=' + Date.now()
-    : '/api/metrics/probe?t=' + Date.now();
-  xhr.open('GET', probeUrl, true);
-  xhr.timeout = 30000; // 30 second timeout (session locks can be long)
+  fetch(probeUrl, { 
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status);
+      }
+      return response.json();
+    })
+    .then(data => {
+      onPollSuccess();
 
-  xhr.onload = function () {
-    const endTime = performance.now();
-    const latencyMs = endTime - startTime;
-
-    onPollSuccess();
-
-    // Parse response for load test status
-    let loadTestActive = false;
-    let loadTestConcurrent = 0;
-    try {
-      const data = JSON.parse(xhr.responseText);
-      loadTestActive = data.loadTestActive || false;
-      loadTestConcurrent = data.loadTestConcurrent || 0;
-    } catch (e) {
-      // Ignore parse errors
-    }
-
-    // Dispatch to probe handler (same interface as sidecar in Node.js)
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: latencyMs,
-        timestamp: Date.now(),
-        success: true,
-        loadTestActive: loadTestActive,
-        loadTestConcurrent: loadTestConcurrent,
-      });
-    }
-  };
-
-  xhr.onerror = function () {
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: 0,
-        timestamp: Date.now(),
-        success: false,
-        loadTestActive: false,
-        loadTestConcurrent: 0,
-      });
-    }
-  };
-
-  xhr.ontimeout = function () {
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: 5000,
-        timestamp: Date.now(),
-        success: false,
-        loadTestActive: false,
-        loadTestConcurrent: 0,
-      });
-    }
-  };
-
-  xhr.send();
+      // Process each probe in the batch
+      if (data.probes && Array.isArray(data.probes)) {
+        for (const probe of data.probes) {
+          if (typeof onProbeLatency === 'function') {
+            onProbeLatency({
+              latencyMs: probe.latencyMs,
+              timestamp: probe.timestamp,
+              success: probe.success,
+              loadTestActive: probe.loadTestActive || false,
+              loadTestConcurrent: probe.loadTestConcurrent || 0,
+            });
+          }
+        }
+      }
+    })
+    .catch(error => {
+      // Report a single failure for the batch
+      if (typeof onProbeLatency === 'function') {
+        onProbeLatency({
+          latencyMs: 0,
+          timestamp: Date.now(),
+          success: false,
+          loadTestActive: false,
+          loadTestConcurrent: 0,
+        });
+      }
+    });
 }
 
 // ============================================================================

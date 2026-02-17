@@ -104,4 +104,76 @@ class MetricsController
             ],
         ];
     }
+
+    /**
+     * GET /api/metrics/internal-probes
+     * Performs batch internal probes via localhost:8080 (bypasses stamp frontend).
+     * 
+     * This endpoint does multiple curl requests to localhost:8080/api/metrics/probe
+     * and returns the latency measurements. The internal requests don't go through
+     * Azure's front-end infrastructure, so they don't appear in AppLens.
+     * 
+     * Query params:
+     *   count - Number of probes to perform (default: 5, max: 10)
+     *   interval - Milliseconds between probes (default: 100, min: 50)
+     *   session - If true, probe session endpoint to test lock contention
+     */
+    public static function internalProbes(): array
+    {
+        $count = min((int) ($_GET['count'] ?? 5), 10);
+        $intervalMs = max((int) ($_GET['interval'] ?? 100), 50);
+        $sessionMode = isset($_GET['session']) && $_GET['session'] === 'true';
+        
+        // Determine probe URL - use localhost:8080 to bypass stamp frontend
+        $probeEndpoint = $sessionMode 
+            ? '/api/simulations/session/probe'
+            : '/api/metrics/probe';
+        $baseUrl = 'http://localhost:8080' . $probeEndpoint;
+        
+        $results = [];
+        $stats = LoadTestService::getCurrentStats();
+        
+        for ($i = 0; $i < $count; $i++) {
+            $probeStart = microtime(true);
+            
+            // Send internal probe request
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $baseUrl . '?t=' . microtime(true),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_HTTPHEADER => ['X-Internal-Probe: true'],
+            ]);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+            
+            $probeEnd = microtime(true);
+            $latencyMs = ($probeEnd - $probeStart) * 1000;
+            
+            $results[] = [
+                'latencyMs' => round($latencyMs, 2),
+                'timestamp' => (int) ($probeEnd * 1000),
+                'success' => $httpCode === 200 && empty($error),
+                'loadTestActive' => $stats['currentConcurrentRequests'] > 0,
+                'loadTestConcurrent' => $stats['currentConcurrentRequests'],
+            ];
+            
+            // Wait between probes (except after last one)
+            if ($i < $count - 1) {
+                usleep($intervalMs * 1000);
+            }
+        }
+        
+        return [
+            'probes' => $results,
+            'count' => count($results),
+            'intervalMs' => $intervalMs,
+            'sessionMode' => $sessionMode,
+            'pid' => getmypid(),
+        ];
+    }
 }
