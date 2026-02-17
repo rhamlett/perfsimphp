@@ -1296,6 +1296,15 @@ button:disabled {
   background: #5c2d91;
 }
 
+.btn-session {
+  background: var(--color-warning);
+  color: #5c4200;
+}
+
+.btn-session:hover:not(:disabled) {
+  background: #e6a700;
+}
+
 .btn-slow {
   background: linear-gradient(135deg, #ff8c00 0%, #b84900 100%);
   border: 2px solid #ffa500;
