@@ -299,16 +299,12 @@
           <h3>🔒 Session Lock Contention <span class="info-icon" title="Demonstrates PHP's session file locking gotcha">ℹ️</span></h3>
           <p class="control-description">PHP's default sessions use exclusive file locks. While held, ALL requests from this browser that use sessions will block.</p>
           <div class="session-note">
-            ⚠️ This affects only requests from YOUR browser (same session). Watch the latency chart spike when probing with sessions enabled.
+            ⚠️ Watch the latency chart spike while the lock is held.
           </div>
           <form id="session-form">
             <label>
               Lock Duration (s):
               <input type="number" name="durationSeconds" id="session-duration" value="10" min="1" max="60">
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="session-probe-enabled" checked>
-              Enable session probes (probes will block while lock is held)
             </label>
             <div class="btn-group">
               <button type="submit" class="btn-trigger btn-session">🔒 Hold Session Lock</button>

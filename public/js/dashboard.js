@@ -577,9 +577,17 @@ async function blockRequestThread(durationSeconds) {
  * While held, any request from this browser that uses sessions will block.
  * This demonstrates PHP's session file locking gotcha.
  *
+ * Automatically enables session probes during the lock so the latency chart
+ * shows the impact, then disables them after.
+ *
  * @param {number} durationSeconds - How long to hold the lock (1-60)
  */
 async function holdSessionLock(durationSeconds) {
+  // Enable session probes so the chart shows the blocking
+  if (typeof window.setSessionProbeEnabled === 'function') {
+    window.setSessionProbeEnabled(true);
+  }
+
   // Update state
   sessionLockState = {
     active: true,
@@ -591,7 +599,7 @@ async function holdSessionLock(durationSeconds) {
   
   addEventToLog({ 
     level: 'warning', 
-    message: `🔒 Holding session lock for ${durationSeconds}s — session probes will block` 
+    message: `🔒 Holding session lock for ${durationSeconds}s — probes will block` 
   });
 
   try {
@@ -622,6 +630,11 @@ async function holdSessionLock(durationSeconds) {
   } finally {
     sessionLockState.active = false;
     updateSessionStatus();
+    
+    // Disable session probes after lock is released
+    if (typeof window.setSessionProbeEnabled === 'function') {
+      window.setSessionProbeEnabled(false);
+    }
   }
 }
 
@@ -915,27 +928,6 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const duration = parseInt(document.getElementById('session-duration')?.value || '10', 10);
       holdSessionLock(duration);
-    });
-  }
-
-  // Session probe checkbox — toggles whether probes use sessions
-  const sessionProbeCheckbox = document.getElementById('session-probe-enabled');
-  if (sessionProbeCheckbox) {
-    // Initialize from checkbox state
-    if (typeof window.setSessionProbeEnabled === 'function') {
-      window.setSessionProbeEnabled(sessionProbeCheckbox.checked);
-    }
-    
-    sessionProbeCheckbox.addEventListener('change', (e) => {
-      if (typeof window.setSessionProbeEnabled === 'function') {
-        window.setSessionProbeEnabled(e.target.checked);
-        addEventToLog({ 
-          level: 'info', 
-          message: e.target.checked 
-            ? 'Session probes enabled — probes will block if session lock is held'
-            : 'Session probes disabled — probes bypass session locking'
-        });
-      }
     });
   }
 
