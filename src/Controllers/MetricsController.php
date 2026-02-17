@@ -116,19 +116,14 @@ class MetricsController
      * Query params:
      *   count - Number of probes to perform (default: 5, max: 10)
      *   interval - Milliseconds between probes (default: 100, min: 50)
-     *   session - If true, probe session endpoint to test lock contention
      */
     public static function internalProbes(): array
     {
         $count = min((int) ($_GET['count'] ?? 5), 10);
         $intervalMs = max((int) ($_GET['interval'] ?? 100), 50);
-        $sessionMode = isset($_GET['session']) && $_GET['session'] === 'true';
         
-        // Determine probe URL - use localhost:8080 to bypass stamp frontend
-        $probeEndpoint = $sessionMode 
-            ? '/api/simulations/session/probe'
-            : '/api/metrics/probe';
-        $baseUrl = 'http://localhost:8080' . $probeEndpoint;
+        // Use localhost:8080 to bypass stamp frontend
+        $baseUrl = 'http://localhost:8080/api/metrics/probe';
         
         $results = [];
         $stats = LoadTestService::getCurrentStats();
@@ -172,7 +167,6 @@ class MetricsController
             'probes' => $results,
             'count' => count($results),
             'intervalMs' => $intervalMs,
-            'sessionMode' => $sessionMode,
             'pid' => getmypid(),
         ];
     }

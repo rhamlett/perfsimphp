@@ -13,10 +13,7 @@
  *   3. Request Thread Blocking — Blocks PHP-FPM workers with CPU-intensive ops
  *      (In Node.js: "Event Loop Blocking". PHP has no event loop, so blocking
  *       a PHP-FPM worker thread is the equivalent simulation.)
- *   4. Session Lock Contention — Demonstrates PHP's session file locking gotcha
- *      When one request holds session_start(), other requests using sessions
- *      from the same browser will block waiting for the lock.
- *   5. Crash Simulator — Triggers various crash types for recovery testing
+ *   4. Crash Simulator — Triggers various crash types for recovery testing
  *      Types: failfast (exit(1)), stackoverflow (infinite recursion),
  *             exception (trigger_error), oom (memory exhaustion)
  *
@@ -50,13 +47,6 @@ const MAX_EVENT_LOG_ENTRIES = 100;
 // Active simulations tracking
 let activeSimulations = {};
 let lastSimulationsJson = ''; // Track last state to avoid unnecessary re-renders
-
-// Session lock state
-let sessionLockState = {
-  active: false,
-  startTime: null,
-  duration: 0,
-};
 
 /**
  * Initializes the polling client callbacks.
@@ -573,95 +563,6 @@ async function blockRequestThread(durationSeconds) {
 }
 
 /**
- * Holds the PHP session lock for the specified duration.
- * While held, any request from this browser that uses sessions will block.
- * This demonstrates PHP's session file locking gotcha.
- *
- * Automatically enables session probes during the lock so the latency chart
- * shows the impact, then disables them after.
- *
- * @param {number} durationSeconds - How long to hold the lock (1-60)
- */
-async function holdSessionLock(durationSeconds) {
-  // Enable session probes so the chart shows the blocking
-  if (typeof window.setSessionProbeEnabled === 'function') {
-    window.setSessionProbeEnabled(true);
-  }
-
-  // Update state
-  sessionLockState = {
-    active: true,
-    startTime: Date.now(),
-    duration: durationSeconds,
-  };
-  
-  updateSessionStatus();
-  
-  addEventToLog({ 
-    level: 'warning', 
-    message: `🔒 Holding session lock for ${durationSeconds}s — probes will block` 
-  });
-
-  try {
-    const response = await fetch('/api/simulations/session/lock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ durationSeconds }),
-    });
-    
-    const data = await response.json();
-    
-    if (response.ok) {
-      addEventToLog({ 
-        level: 'success', 
-        message: `🔓 Session lock released after ${data.actualDuration}s` 
-      });
-    } else {
-      addEventToLog({ 
-        level: 'error', 
-        message: `Session lock failed: ${data.error || 'Unknown error'}` 
-      });
-    }
-  } catch (err) {
-    addEventToLog({ 
-      level: 'error', 
-      message: `Session lock request failed: ${err.message}` 
-    });
-  } finally {
-    sessionLockState.active = false;
-    updateSessionStatus();
-    
-    // Disable session probes after lock is released
-    if (typeof window.setSessionProbeEnabled === 'function') {
-      window.setSessionProbeEnabled(false);
-    }
-  }
-}
-
-/**
- * Updates the session lock status display.
- */
-function updateSessionStatus() {
-  const statusEl = document.getElementById('session-status');
-  if (statusEl) {
-    if (sessionLockState.active) {
-      statusEl.classList.add('active');
-      const elapsed = Math.round((Date.now() - sessionLockState.startTime) / 1000);
-      statusEl.innerHTML = `<strong>🔒 Lock Active:</strong> ${elapsed}s / ${sessionLockState.duration}s — Session probes are blocking`;
-    } else {
-      statusEl.classList.remove('active');
-    }
-  }
-}
-
-// Update session status periodically while lock is active
-setInterval(() => {
-  if (sessionLockState.active) {
-    updateSessionStatus();
-  }
-}, 500);
-
-/**
  * Triggers a crash of the specified type.
  * In PHP, crashes affect the individual FPM worker process.
  * Uses fastcgi_finish_request() to send response before crashing.
@@ -918,16 +819,6 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const duration = parseInt(document.getElementById('blocking-duration')?.value || '5', 10);
       blockRequestThread(duration);
-    });
-  }
-
-  // ---- Session Lock Form ----
-  const sessionForm = document.getElementById('session-form');
-  if (sessionForm) {
-    sessionForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const duration = parseInt(document.getElementById('session-duration')?.value || '10', 10);
-      holdSessionLock(duration);
     });
   }
 

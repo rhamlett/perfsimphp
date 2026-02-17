@@ -1118,41 +1118,9 @@ section h2, section h3 {
   background: rgba(135, 100, 184, 0.05);
 }
 
-.session-section {
-  border: 2px dashed #ff8c00;
-  background: rgba(255, 140, 0, 0.05);
-}
-
 .crash-section {
   border: 2px dashed var(--color-danger);
   background: rgba(209, 52, 56, 0.05);
-}
-
-.session-note {
-  font-size: 0.75rem;
-  color: #b8860b;
-  background: rgba(255, 193, 7, 0.15);
-  border-left: 3px solid #ffc107;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.75rem;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-
-.session-status {
-  display: none;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: var(--radius-sm);
-}
-
-.session-status.active {
-  display: block;
-  color: #a85900;
-  border: 2px solid #ff8c00;
-  background: rgba(255, 255, 255, 0.95);
 }
 
 .checkbox-label {
@@ -1294,15 +1262,6 @@ button:disabled {
 
 .btn-eventloop:hover:not(:disabled) {
   background: #5c2d91;
-}
-
-.btn-session {
-  background: var(--color-warning);
-  color: #5c4200;
-}
-
-.btn-session:hover:not(:disabled) {
-  background: #e6a700;
 }
 
 .btn-slow {

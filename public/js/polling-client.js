@@ -46,27 +46,8 @@ const EVENTS_POLL_INTERVAL = 2000;
 // Internal batch probe interval - server does 5 probes @ 100ms each internally
 // This results in ~10 latency samples/sec while only 2 external requests/sec hit AppLens
 const PROBE_POLL_INTERVAL = 500;
-const SESSION_PROBE_POLL_INTERVAL = 100; // Faster probing for session lock demo
 const INTERNAL_PROBE_COUNT = 5;
 const INTERNAL_PROBE_INTERVAL = 100;
-
-// Session probe mode - when enabled, probes use session endpoint (blocks if session locked)
-let sessionProbeEnabled = false;
-
-// Export function to enable/disable session probes
-// Restarts probe polling with appropriate interval for the mode
-window.setSessionProbeEnabled = function(enabled) {
-  const wasEnabled = sessionProbeEnabled;
-  sessionProbeEnabled = enabled;
-  
-  // Restart polling with appropriate interval when mode changes
-  if (wasEnabled !== enabled && probePollTimer) {
-    clearInterval(probePollTimer);
-    const interval = enabled ? SESSION_PROBE_POLL_INTERVAL : PROBE_POLL_INTERVAL;
-    probePollTimer = setInterval(probeOnce, interval);
-    console.log(`[polling-client] Session probe mode ${enabled ? 'enabled' : 'disabled'}, interval: ${interval}ms`);
-  }
-};
 
 // Polling timer IDs
 let metricsPollTimer = null;
@@ -348,24 +329,12 @@ function startProbePolling() {
  * Fetches a batch of internal latency probes from the server.
  * The server does multiple curl requests to localhost:8080/api/metrics/probe,
  * avoiding the stamp frontend while still measuring real PHP-FPM latency.
- * 
- * EXCEPTION: When sessionProbeEnabled is true, uses direct browser XHR instead.
- * This is required because session lock contention only works when the probe
- * request shares the browser's session cookie (internal curl creates new sessions).
  */
 function probeOnce() {
-  // Session probe mode: use direct browser XHR to share session cookie
-  // Internal curl probes can't demonstrate session lock because they don't share the browser's session
-  if (sessionProbeEnabled) {
-    probeOnceDirectXhr();
-    return;
-  }
-
-  // Normal mode: use internal batch probing (reduces AppLens traffic)
+  // Use internal batch probing (reduces AppLens traffic)
   const params = new URLSearchParams({
     count: INTERNAL_PROBE_COUNT.toString(),
     interval: INTERNAL_PROBE_INTERVAL.toString(),
-    session: 'false',
     t: Date.now().toString(),
   });
   const probeUrl = '/api/metrics/internal-probes?' + params.toString();
@@ -410,78 +379,6 @@ function probeOnce() {
         });
       }
     });
-}
-
-/**
- * Performs a direct browser XHR probe to the session endpoint.
- * Used when sessionProbeEnabled is true, so the probe shares the browser's
- * session cookie and will be blocked by session lock contention.
- * 
- * NOTE: This goes through the stamp frontend (shows in AppLens) but is
- * required for session lock demonstration to work correctly.
- */
-function probeOnceDirectXhr() {
-  const startTime = performance.now();
-
-  const xhr = new XMLHttpRequest();
-  const probeUrl = '/api/simulations/session/probe?t=' + Date.now();
-  xhr.open('GET', probeUrl, true);
-  xhr.timeout = 60000; // 60 second timeout (session locks can be very long)
-  xhr.withCredentials = true; // Ensure cookies are sent
-
-  xhr.onload = function () {
-    const endTime = performance.now();
-    const latencyMs = endTime - startTime;
-
-    onPollSuccess();
-
-    // Parse response for lock wait info
-    let lockWaitMs = 0;
-    try {
-      const data = JSON.parse(xhr.responseText);
-      lockWaitMs = data.lockWaitMs || 0;
-    } catch (e) {
-      // Ignore parse errors
-    }
-
-    // Dispatch to probe handler
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: latencyMs,
-        timestamp: Date.now(),
-        success: true,
-        loadTestActive: false,
-        loadTestConcurrent: 0,
-        sessionLockWaitMs: lockWaitMs,
-      });
-    }
-  };
-
-  xhr.onerror = function () {
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: 0,
-        timestamp: Date.now(),
-        success: false,
-        loadTestActive: false,
-        loadTestConcurrent: 0,
-      });
-    }
-  };
-
-  xhr.ontimeout = function () {
-    if (typeof onProbeLatency === 'function') {
-      onProbeLatency({
-        latencyMs: 60000,
-        timestamp: Date.now(),
-        success: false,
-        loadTestActive: false,
-        loadTestConcurrent: 0,
-      });
-    }
-  };
-
-  xhr.send();
 }
 
 // ============================================================================

@@ -292,27 +292,6 @@
           <div id="eventloop-impact" class="eventloop-impact"></div>
         </div>
 
-        <!-- Session Lock Contention -->
-        <div class="control-section session-section">
-          <!-- PORTING NOTE: PHP-specific gotcha. Node.js has no equivalent since it doesn't use
-               file-based sessions. Other runtimes may have similar issues with session stores. -->
-          <h3>🔒 Session Lock Contention <span class="info-icon" title="Demonstrates PHP's session file locking gotcha">ℹ️</span></h3>
-          <p class="control-description">PHP's default sessions use exclusive file locks. While held, ALL requests from this browser that use sessions will block.</p>
-          <div class="session-note">
-            ⚠️ Watch the latency chart spike while the lock is held.
-          </div>
-          <form id="session-form">
-            <label>
-              Lock Duration (s):
-              <input type="number" name="durationSeconds" id="session-duration" value="10" min="1" max="60">
-            </label>
-            <div class="btn-group">
-              <button type="submit" class="btn-trigger btn-session">🔒 Hold Session Lock</button>
-            </div>
-          </form>
-          <div id="session-status" class="session-status"></div>
-        </div>
-
         <!-- Crash Simulation -->
         <!-- PORTING NOTE: Update crash types to match the target runtime's crash mechanisms.
              Node.js: SIGABRT, stack overflow, unhandled exception, OOM

@@ -45,7 +45,6 @@ use PerfSimPhp\Controllers\MetricsController;
 use PerfSimPhp\Controllers\CpuController;
 use PerfSimPhp\Controllers\MemoryController;
 use PerfSimPhp\Controllers\BlockingController;
-use PerfSimPhp\Controllers\SessionController;
 use PerfSimPhp\Controllers\CrashController;
 use PerfSimPhp\Controllers\LoadTestController;
 use PerfSimPhp\Controllers\AdminController;
@@ -156,16 +155,6 @@ class Router
         // Blocking simulation endpoint (replaces Node.js "event loop blocking")
         if ($method === 'POST' && ($path === '/api/simulations/blocking' || $path === '/api/simulations/blocking/start')) {
             BlockingController::block();
-            return null;
-        }
-
-        // Session lock contention endpoint (PHP-specific gotcha)
-        if ($method === 'POST' && ($path === '/api/simulations/session/lock' || $path === '/api/simulations/session/start')) {
-            SessionController::lock();
-            return null;
-        }
-        if ($method === 'GET' && $path === '/api/simulations/session/probe') {
-            SessionController::probe();
             return null;
         }
 
