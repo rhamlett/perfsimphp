@@ -113,5 +113,15 @@ echo "Starting PHP-FPM in foreground..."
 # First ensure nginx is running (service might not have started yet in some image versions)
 service nginx start 2>/dev/null || nginx 2>/dev/null || echo "nginx already running or started via reload"
 
+# Start self-probe in background BEFORE php-fpm (which blocks)
+# This generates external traffic visible in Azure AppLens
+SELF_PROBE_SCRIPT="/home/site/wwwroot/self-probe.sh"
+if [ -f "$SELF_PROBE_SCRIPT" ]; then
+    chmod +x "$SELF_PROBE_SCRIPT"
+    echo "Starting self-probe background process..."
+    nohup "$SELF_PROBE_SCRIPT" >> /home/LogFiles/self-probe.log 2>&1 &
+    echo "Self-probe PID: $!"
+fi
+
 # Start php-fpm in foreground to keep container alive
 php-fpm -F

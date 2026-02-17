@@ -81,4 +81,15 @@ curl -I http://localhost:8080 || echo "Curl to 8080 failed"
 curl -I http://localhost:80 || echo "Curl to 80 failed"
 
 echo "--- Starting PHP-FPM ---"
+
+# Start self-probe in background BEFORE php-fpm (which blocks)
+# This generates external traffic visible in Azure AppLens
+SELF_PROBE_SCRIPT="/home/site/wwwroot/self-probe.sh"
+if [ -f "$SELF_PROBE_SCRIPT" ]; then
+    chmod +x "$SELF_PROBE_SCRIPT"
+    echo "Starting self-probe background process..."
+    nohup "$SELF_PROBE_SCRIPT" >> /home/LogFiles/self-probe.log 2>&1 &
+    echo "Self-probe PID: $!"
+fi
+
 php-fpm -F
