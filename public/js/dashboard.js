@@ -60,7 +60,11 @@ let slowRequestState = {
   stopped: false,
   maxRequests: 0,
   sent: 0,
+  pending: [], // Queue for pending requests (concurrency limiting)
 };
+
+// Max concurrent browser connections for slow requests (leave headroom for probes)
+const MAX_CONCURRENT_SLOW_REQUESTS = 4;
 
 /**
  * Initializes the polling client callbacks.
@@ -591,6 +595,8 @@ async function blockRequestThread(durationSeconds) {
  * Starts slow request simulation.
  * Creates requests that take a long time to complete via different blocking patterns.
  * Sends multiple requests at intervals to exhaust FPM workers and cause latency degradation.
+ * 
+ * Uses concurrency limiting to avoid exhausting browser connections (leaves headroom for probes).
  *
  * PHP slow request patterns:
  *   - "sleep": Uses PHP sleep() — simple delay, doesn't consume CPU
@@ -617,6 +623,7 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
     stopped: false,
     maxRequests: maxRequests,
     sent: 0,
+    pending: [],
   };
 
   const modeDesc = burstMode ? 'BURST' : `every ${intervalSeconds}s`;
@@ -626,15 +633,25 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
   });
   updateSlowStatus();
 
-  // Function to send a single slow request (fire and forget)
-  const sendSlowRequest = (requestNum) => {
+  // Process next request from queue (concurrency limiter)
+  const processQueue = () => {
+    while (slowRequestState.pending.length > 0 && 
+           slowRequestState.inFlight < MAX_CONCURRENT_SLOW_REQUESTS &&
+           !slowRequestState.stopped) {
+      const requestNum = slowRequestState.pending.shift();
+      executeSlowRequest(requestNum, delaySeconds, blockingPattern, processQueue);
+    }
+  };
+
+  // Function to actually execute a slow request
+  const executeSlowRequest = (requestNum, delay, pattern, onComplete) => {
     slowRequestState.inFlight++;
     updateSlowStatus();
 
     fetch('/api/simulations/slow/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ delaySeconds, blockingPattern }),
+      body: JSON.stringify({ delaySeconds: delay, blockingPattern: pattern }),
     })
       .then(response => response.json())
       .then(data => {
@@ -649,9 +666,11 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
         }
         // Check if all done
         if (slowRequestState.completed >= slowRequestState.maxRequests && !slowRequestState.stopped) {
-          addEventToLog({ level: 'success', message: `All ${maxRequests} slow requests completed` });
+          addEventToLog({ level: 'success', message: `All ${slowRequestState.maxRequests} slow requests completed` });
           updateSlowStatus();
         }
+        // Process next from queue
+        onComplete();
       })
       .catch(err => {
         slowRequestState.inFlight--;
@@ -660,19 +679,22 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
           level: 'error', 
           message: `Slow request #${requestNum} failed: ${err.message}` 
         });
+        // Process next from queue even on error
+        onComplete();
       });
   };
 
-  // BURST MODE: Send all requests immediately
+  // BURST MODE: Queue all requests immediately
   if (burstMode) {
     addEventToLog({ 
       level: 'warning', 
-      message: `🔥 BURST: Sending ${maxRequests} requests simultaneously to exhaust FPM pool` 
+      message: `🔥 BURST: Queuing ${maxRequests} requests (${MAX_CONCURRENT_SLOW_REQUESTS} concurrent to preserve probe connectivity)` 
     });
     for (let i = 1; i <= maxRequests; i++) {
       slowRequestState.sent++;
-      sendSlowRequest(i);
+      slowRequestState.pending.push(i);
     }
+    processQueue();
     return;
   }
 
@@ -692,7 +714,8 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
       level: 'info', 
       message: `Slow request #${requestNum} started (${blockingPattern}, ${delaySeconds}s)` 
     });
-    sendSlowRequest(requestNum);
+    slowRequestState.pending.push(requestNum);
+    processQueue();
   };
 
   // Send first request immediately
@@ -702,7 +725,7 @@ async function startSlowRequests(delaySeconds, intervalSeconds, maxRequests, blo
   if (maxRequests > 1 && intervalSeconds > 0) {
     slowRequestState.intervalId = setInterval(sendNextRequest, intervalSeconds * 1000);
   } else if (maxRequests > 1 && intervalSeconds === 0) {
-    // Interval of 0 = send all remaining immediately (same as burst)
+    // Interval of 0 = queue all remaining immediately (same as burst)
     for (let i = 2; i <= maxRequests; i++) {
       sendNextRequest();
     }
@@ -716,9 +739,17 @@ function updateSlowStatus() {
   const statusEl = document.getElementById('slow-status');
   if (statusEl) {
     const state = slowRequestState;
-    if (state.inFlight > 0 || (state.intervalId && state.sent < state.maxRequests)) {
+    const queued = state.pending?.length || 0;
+    const isActive = state.inFlight > 0 || queued > 0 || (state.intervalId && state.sent < state.maxRequests);
+    
+    if (isActive) {
       statusEl.classList.add('active');
-      statusEl.innerHTML = `<strong>In Progress:</strong> ${state.inFlight} in-flight, ${state.completed}/${state.maxRequests} completed`;
+      let statusText = `<strong>In Progress:</strong> ${state.inFlight} in-flight`;
+      if (queued > 0) {
+        statusText += `, ${queued} queued`;
+      }
+      statusText += `, ${state.completed}/${state.maxRequests} completed`;
+      statusEl.innerHTML = statusText;
     } else if (state.completed > 0) {
       statusEl.classList.add('active');
       statusEl.innerHTML = `<strong>Done:</strong> ${state.completed}/${state.maxRequests} completed`;
@@ -743,12 +774,21 @@ async function stopSlowRequests() {
     slowRequestState.intervalId = null;
   }
   slowRequestState.stopped = true;
+  
+  const queuedCount = slowRequestState.pending?.length || 0;
+  slowRequestState.pending = []; // Clear the queue
 
   const inFlight = slowRequestState.inFlight;
-  addEventToLog({ 
-    level: 'warning', 
-    message: `Slow request simulation stopped (${slowRequestState.completed} completed, ${inFlight} still in-flight will complete)` 
-  });
+  let msg = `Slow request simulation stopped (${slowRequestState.completed} completed`;
+  if (queuedCount > 0) {
+    msg += `, ${queuedCount} cancelled`;
+  }
+  if (inFlight > 0) {
+    msg += `, ${inFlight} in-flight will complete`;
+  }
+  msg += ')';
+  
+  addEventToLog({ level: 'warning', message: msg });
   updateSlowStatus();
 }
 
