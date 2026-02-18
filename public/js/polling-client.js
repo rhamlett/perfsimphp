@@ -46,7 +46,8 @@ const METRICS_POLL_INTERVAL = 250;
 const EVENTS_POLL_INTERVAL = 2000;
 // Internal batch probe: 1 request/sec to AppLens, server does 10 internal probes at 100ms intervals
 // Results are dispatched to chart at 100ms intervals for smooth visualization
-const PROBE_POLL_INTERVAL = 1000;
+// PROBE_POLL_INTERVAL is 0 because server response time (~1s) provides natural pacing
+const PROBE_POLL_INTERVAL = 0;
 const INTERNAL_PROBE_COUNT = 10;
 const INTERNAL_PROBE_INTERVAL = 100;
 
@@ -329,8 +330,9 @@ function startProbePolling() {
 }
 
 /**
- * Schedules the next probe after a delay.
- * Uses setTimeout to prevent overlapping requests when server is slow.
+ * Schedules the next probe immediately after the current one completes.
+ * Server response time (~1s) provides natural pacing between requests.
+ * The setTimeout(0) ensures we don't block and allows current dispatch to proceed.
  */
 function scheduleNextProbe() {
   probePollTimer = setTimeout(() => {
