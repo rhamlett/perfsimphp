@@ -522,10 +522,10 @@ POST /api/simulations/slow/start
       <table>
         <tr><th>Endpoint</th><th>Poll Interval</th><th>Description</th></tr>
         <tr><td><code>/api/metrics</code></td><td>250ms</td><td>System metrics (CPU, memory, FPM workers)</td></tr>
-        <tr><td><code>/api/metrics/internal-probes</code></td><td>500ms</td><td>Batch latency probes via internal curl (5 probes @ 100ms)</td></tr>
+        <tr><td><code>/api/metrics/internal-probes</code></td><td>1000ms</td><td>Batch latency probes via internal curl (10 probes @ 100ms)</td></tr>
         <tr><td><code>/api/admin/events</code></td><td>2000ms</td><td>Event log updates</td></tr>
       </table>
-      <p><em>Latency probes use internal curl to localhost:8080, bypassing Azure's stamp frontend to reduce AppLens traffic while maintaining ~10 samples/second.</em></p>
+      <p><em>Latency probes use internal curl to localhost:8080, bypassing Azure's stamp frontend. Results are dispatched to the chart at 100ms intervals, giving 10 samples/sec with only 1 request/sec to AppLens.</em></p>
     </section>
 
     <section id="load-testing" class="docs-section">

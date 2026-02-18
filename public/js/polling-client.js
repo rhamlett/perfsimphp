@@ -9,13 +9,14 @@
  *   so this client polls REST endpoints at regular intervals:
  *   - /api/metrics                → System metrics updates (~250ms)
  *   - /api/admin/events           → Event log entries (~2s)
- *   - /api/metrics/internal-probes → Batch latency measurement (~500ms)
+ *   - /api/metrics/internal-probes → Batch latency measurement (~1s)
  *
  *   LATENCY PROBING STRATEGY:
  *   To reduce AppLens traffic, latency probes use internal batch probing.
- *   The server performs multiple curl requests to localhost:8080 internally,
- *   which bypass Azure's stamp frontend. This provides ~10 latency samples/sec
- *   while only generating ~2 external requests/sec visible in AppLens.
+ *   The server performs 10 curl requests to localhost:8080 internally at
+ *   100ms intervals (bypasses Azure's stamp frontend). Results are dispatched
+ *   to the chart at 100ms intervals for smooth visualization.
+ *   Result: 10 latency samples/sec with only 1 external request/sec to AppLens.
  *
  * SCRIPT LOADING ORDER:
  *   This file must be loaded BEFORE dashboard.js and charts.js in index.html.
@@ -43,10 +44,10 @@ const maxReconnectAttempts = 10;
 // Polling intervals (milliseconds)
 const METRICS_POLL_INTERVAL = 250;
 const EVENTS_POLL_INTERVAL = 2000;
-// Internal batch probe interval - server does 5 probes @ 100ms each internally
-// This results in ~10 latency samples/sec while only 2 external requests/sec hit AppLens
-const PROBE_POLL_INTERVAL = 500;
-const INTERNAL_PROBE_COUNT = 5;
+// Internal batch probe: 1 request/sec to AppLens, server does 10 internal probes at 100ms intervals
+// Results are dispatched to chart at 100ms intervals for smooth visualization
+const PROBE_POLL_INTERVAL = 1000;
+const INTERNAL_PROBE_COUNT = 10;
 const INTERNAL_PROBE_INTERVAL = 100;
 
 // Polling timer IDs
@@ -366,19 +367,22 @@ function probeOnce() {
     .then(data => {
       onPollSuccess();
 
-      // Process each probe in the batch
+      // Process each probe in the batch, dispatching at 100ms intervals
+      // This gives smooth chart updates while only making 1 request/sec to AppLens
       if (data.probes && Array.isArray(data.probes)) {
-        for (const probe of data.probes) {
-          if (typeof onProbeLatency === 'function') {
-            onProbeLatency({
-              latencyMs: probe.latencyMs,
-              timestamp: probe.timestamp,
-              success: probe.success,
-              loadTestActive: probe.loadTestActive || false,
-              loadTestConcurrent: probe.loadTestConcurrent || 0,
-            });
-          }
-        }
+        data.probes.forEach((probe, index) => {
+          setTimeout(() => {
+            if (typeof onProbeLatency === 'function') {
+              onProbeLatency({
+                latencyMs: probe.latencyMs,
+                timestamp: probe.timestamp,
+                success: probe.success,
+                loadTestActive: probe.loadTestActive || false,
+                loadTestConcurrent: probe.loadTestConcurrent || 0,
+              });
+            }
+          }, index * INTERNAL_PROBE_INTERVAL);
+        });
       }
     })
     .catch(error => {
