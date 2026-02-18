@@ -123,7 +123,7 @@ class Validation
     /**
      * Validates blocking simulation parameters.
      *
-     * @param array|mixed $data Array containing durationSeconds
+     * @param array|mixed $data Array containing durationSeconds and optional concurrentWorkers
      * @throws ValidationException if validation fails
      */
     public static function validateBlockingParams(mixed $data): array
@@ -132,11 +132,19 @@ class Validation
             throw new ValidationException("Invalid blocking parameters");
         }
 
+        // Validate concurrentWorkers (optional, defaults to 1)
+        $concurrentWorkers = $data['concurrentWorkers'] ?? Config::DEFAULT_BLOCKING_CONCURRENT_WORKERS;
+        if (!is_numeric($concurrentWorkers) || $concurrentWorkers < 1) {
+            $concurrentWorkers = Config::DEFAULT_BLOCKING_CONCURRENT_WORKERS;
+        }
+        $concurrentWorkers = min((int)$concurrentWorkers, Config::MAX_BLOCKING_CONCURRENT_WORKERS);
+
         return [
             'durationSeconds' => self::validateInteger(
                 $data['durationSeconds'] ?? null, 'durationSeconds',
                 Config::MIN_DURATION_SECONDS, Config::maxDurationSeconds()
             ),
+            'concurrentWorkers' => $concurrentWorkers,
         ];
     }
 

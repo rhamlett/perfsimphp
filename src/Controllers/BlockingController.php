@@ -36,6 +36,7 @@ class BlockingController
      * POST /api/simulations/blocking
      * Starts blocking mode for the specified duration.
      * All probe requests during this window will experience latency.
+     * If concurrentWorkers > 1, spawns additional FPM workers that block.
      */
     public static function block(): void
     {
@@ -45,14 +46,35 @@ class BlockingController
         // Set blocking mode (returns immediately)
         $simulation = BlockingService::block($params);
 
+        $concurrentWorkers = $params['concurrentWorkers'] ?? 1;
+        $workerMessage = $concurrentWorkers > 1 
+            ? "Blocking {$concurrentWorkers} FPM workers for {$params['durationSeconds']}s"
+            : "Blocking mode active for {$params['durationSeconds']}s — probe requests will experience latency";
+
         echo json_encode([
             'id' => $simulation['id'],
             'type' => $simulation['type'],
-            'message' => "Blocking mode active for {$params['durationSeconds']}s — probe requests will experience latency",
+            'message' => $workerMessage,
             'status' => $simulation['status'],
             'startedAt' => $simulation['startedAt'],
             'scheduledEndAt' => $simulation['scheduledEndAt'],
             'durationSeconds' => $params['durationSeconds'],
+            'concurrentWorkers' => $concurrentWorkers,
         ]);
+
+        // Spawn additional blocking workers AFTER sending response
+        // This prevents the client from waiting for all workers to complete
+        if ($concurrentWorkers > 1) {
+            // Flush output and disconnect client first
+            if (function_exists('fastcgi_finish_request')) {
+                fastcgi_finish_request();
+            }
+            
+            // Now spawn (N-1) blocking requests - the dashboard polling will be the Nth
+            BlockingService::spawnConcurrentBlockingRequests(
+                $concurrentWorkers - 1,
+                $params['durationSeconds']
+            );
+        }
     }
 }

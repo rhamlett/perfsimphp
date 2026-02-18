@@ -542,14 +542,16 @@ async function releaseMemory() {
  * FPM worker processes. Blocking enough workers exhausts the pool.
  *
  * @param {number} durationSeconds - How long to block (1-60)
+ * @param {number} concurrentWorkers - Number of FPM workers to block (1-20)
  */
-async function blockRequestThread(durationSeconds) {
+async function blockRequestThread(durationSeconds, concurrentWorkers = 1) {
   try {
-    addEventToLog({ level: 'info', message: `Blocking request thread for ${durationSeconds}s...` });
+    const workerText = concurrentWorkers > 1 ? `${concurrentWorkers} workers` : 'request thread';
+    addEventToLog({ level: 'info', message: `Blocking ${workerText} for ${durationSeconds}s...` });
     const response = await fetch('/api/simulations/blocking/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ durationSeconds }),
+      body: JSON.stringify({ durationSeconds, concurrentWorkers }),
     });
     const data = await response.json();
     if (response.ok) {
@@ -818,7 +820,8 @@ document.addEventListener('DOMContentLoaded', () => {
     blockingForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const duration = parseInt(document.getElementById('blocking-duration')?.value || '5', 10);
-      blockRequestThread(duration);
+      const workers = parseInt(document.getElementById('blocking-workers')?.value || '1', 10);
+      blockRequestThread(duration, workers);
     });
   }
 

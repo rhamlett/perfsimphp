@@ -37,19 +37,25 @@ class BlockingService
     /**
      * Start blocking mode for the specified duration.
      * All probe requests during this window will perform blocking work.
+     * Note: Call spawnConcurrentBlockingRequests() separately after sending response.
      *
-     * @param array{durationSeconds: int} $params
+     * @param array{durationSeconds: int, concurrentWorkers?: int} $params
      * @return array The simulation record
      */
     public static function block(array $params): array
     {
         $durationSeconds = $params['durationSeconds'];
+        $concurrentWorkers = $params['concurrentWorkers'] ?? 1;
         $endTime = microtime(true) + $durationSeconds;
 
         // Create simulation record first
         $simulation = SimulationTrackerService::createSimulation(
             'REQUEST_BLOCKING',
-            ['type' => 'REQUEST_BLOCKING', 'durationSeconds' => $durationSeconds],
+            [
+                'type' => 'REQUEST_BLOCKING',
+                'durationSeconds' => $durationSeconds,
+                'concurrentWorkers' => $concurrentWorkers,
+            ],
             $durationSeconds
         );
 
@@ -57,11 +63,68 @@ class BlockingService
         SharedStorage::set(self::BLOCKING_MODE_KEY, [
             'endTime' => $endTime,
             'durationSeconds' => $durationSeconds,
+            'concurrentWorkers' => $concurrentWorkers,
             'startedAt' => microtime(true),
             'simulationId' => $simulation['id'],
         ], $durationSeconds + 60); // TTL slightly longer than duration
 
         return $simulation;
+    }
+
+    /**
+     * Spawn concurrent requests to the internal probe endpoint to block multiple FPM workers.
+     * Uses curl_multi to fire requests that will each block a worker for the duration.
+     * This method blocks until all requests complete or timeout.
+     * 
+     * Call this AFTER fastcgi_finish_request() to avoid delaying the client response.
+     *
+     * @param int $count Number of requests to spawn
+     * @param int $durationSeconds How long each request should block
+     */
+    public static function spawnConcurrentBlockingRequests(int $count, int $durationSeconds): void
+    {
+        if ($count < 1) {
+            return;
+        }
+
+        // Use localhost:8080 (Azure App Service internal port)
+        $port = getenv('HTTP_PLATFORM_PORT') ?: '8080';
+        $url = "http://127.0.0.1:{$port}/api/metrics/probe";
+
+        $mh = curl_multi_init();
+        $handles = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => $durationSeconds + 5, // Allow time for blocking work
+                CURLOPT_CONNECTTIMEOUT => 2,
+                // Add header to identify this as a blocking request
+                CURLOPT_HTTPHEADER => ['X-Blocking-Request: true'],
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[] = $ch;
+        }
+
+        // Execute all requests in parallel
+        // This loops until all blocking requests complete (each takes ~durationSeconds)
+        $running = null;
+        do {
+            $status = curl_multi_exec($mh, $running);
+            if ($running > 0) {
+                // Wait for activity on any socket (with timeout)
+                curl_multi_select($mh, 0.5);
+            }
+        } while ($running > 0 && $status === CURLM_OK);
+
+        // Clean up handles
+        foreach ($handles as $ch) {
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+        curl_multi_close($mh);
     }
 
     /**

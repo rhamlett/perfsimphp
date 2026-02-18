@@ -285,6 +285,10 @@
               Block Duration (s):
               <input type="number" name="durationSeconds" id="blocking-duration" value="5" min="1" max="60">
             </label>
+            <label>
+              Concurrent Workers:
+              <input type="number" name="concurrentWorkers" id="blocking-workers" value="1" min="1" max="20" title="Number of FPM workers to block simultaneously">
+            </label>
             <!-- PORTING NOTE: Node.js has a "Chunk (ms)" parameter for yielding between blocking chunks.
                  PHP doesn't yield between chunks (each FPM worker is independent), so this parameter is removed. -->
             <button type="submit" class="btn-trigger btn-eventloop">🧵 Block FPM Worker</button>

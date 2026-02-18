@@ -91,6 +91,12 @@ class Config
     /** Default blocking duration in seconds */
     public const DEFAULT_BLOCKING_DURATION_SECONDS = 5;
 
+    /** Default concurrent workers to block */
+    public const DEFAULT_BLOCKING_CONCURRENT_WORKERS = 1;
+
+    /** Maximum concurrent workers to block (prevents exhausting entire FPM pool) */
+    public const MAX_BLOCKING_CONCURRENT_WORKERS = 20;
+
     /** Default slow request delay in seconds */
     public const DEFAULT_SLOW_REQUEST_DELAY_SECONDS = 5;
 
