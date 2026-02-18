@@ -641,19 +641,45 @@ async function triggerCrash(crashType) {
  * Triggers a multi-worker crash by sending concurrent requests from the browser.
  * This is more reliable than backend curl which can't reach itself on Azure.
  * 
+ * Limits requests to actual available workers to provide accurate reporting.
+ * 
  * @param {number} workerCount - Number of workers to crash (1-10)
  * @param {string} crashType - The crash type to use for each worker
  */
 async function triggerMultiCrash(workerCount, crashType) {
-  const message = `🚨 DANGER: This will send ${workerCount} concurrent crash requests!\n\n` +
-    `This may cause temporary service degradation until FPM respawns the workers.\n\n` +
-    `Continue?`;
+  // First, get the actual active worker count from the server
+  let activeWorkers = 0;
+  try {
+    const statsResponse = await fetch('/api/simulations/crash/stats');
+    if (statsResponse.ok) {
+      const stats = await statsResponse.json();
+      activeWorkers = stats.stats?.activeWorkerCount || 0;
+    }
+  } catch (e) {
+    console.warn('Could not fetch worker stats, proceeding with requested count');
+  }
 
-  if (!confirm(message)) return;
+  // Calculate how many workers we can actually crash (one worker handles the stats request)
+  // When crashes happen, we're limited by available workers
+  const availableToCrash = Math.max(0, activeWorkers - 1);
+  const actualCrashCount = Math.min(workerCount, availableToCrash > 0 ? availableToCrash : workerCount);
+  
+  let confirmMessage = `🚨 DANGER: This will send ${actualCrashCount} concurrent crash requests!\n\n`;
+  if (workerCount > availableToCrash && availableToCrash > 0) {
+    confirmMessage += `Note: You requested ${workerCount} but only ${availableToCrash} workers are available (${activeWorkers} active, 1 handling requests).\n\n`;
+  }
+  confirmMessage += `This may cause temporary service degradation until FPM respawns the workers.\n\nContinue?`;
 
+  if (!confirm(confirmMessage)) return;
+
+  // Log with actual count, noting if limited
+  const initiatingMsg = workerCount > availableToCrash && availableToCrash > 0
+    ? `Initiating multi-worker crash: ${actualCrashCount} workers via ${crashType} (requested ${workerCount}, limited to ${availableToCrash} available)`
+    : `Initiating multi-worker crash: ${actualCrashCount} workers via ${crashType}`;
+  
   addEventToLog({ 
     level: 'warning', 
-    message: `Initiating multi-worker crash: ${workerCount} workers via ${crashType}` 
+    message: initiatingMsg
   });
 
   const crashEndpoints = {
@@ -665,9 +691,9 @@ async function triggerMultiCrash(workerCount, crashType) {
 
   const endpoint = crashEndpoints[crashType] || crashEndpoints.failfast;
   
-  // Send concurrent requests from the browser
+  // Send concurrent requests from the browser (limited to actual available)
   const promises = [];
-  for (let i = 0; i < workerCount; i++) {
+  for (let i = 0; i < actualCrashCount; i++) {
     promises.push(
       fetch(endpoint, { method: 'POST' })
         .then(r => r.ok ? 1 : 0)
@@ -683,9 +709,14 @@ async function triggerMultiCrash(workerCount, crashType) {
     sessionCrashCount += successCount;
     updateSessionCrashDisplay();
     
+    // Log with context about what was requested vs what happened
+    const completeMsg = workerCount > actualCrashCount
+      ? `Multi-crash complete: ${successCount}/${actualCrashCount} workers crashed (requested ${workerCount})`
+      : `Multi-crash complete: ${successCount}/${actualCrashCount} workers crashed`;
+    
     addEventToLog({ 
       level: 'info', 
-      message: `Multi-crash complete: ${successCount}/${workerCount} workers crashed` 
+      message: completeMsg
     });
   } catch (err) {
     addEventToLog({ 
