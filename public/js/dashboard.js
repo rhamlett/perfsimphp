@@ -171,16 +171,11 @@ function updateDashboard(metrics) {
     updateActiveSimulations(metrics.simulations);
   }
 
-  // Update crash tracking stats
+  // Update active workers count in FPM Workers tile from crash tracking
   if (metrics.crashTracking) {
-    updateCrashStats(metrics.crashTracking);
-  }
-  
-  // Update current worker PID from worker info
-  if (metrics.workerInfo) {
-    const pidEl = document.getElementById('current-worker-pid');
-    if (pidEl) {
-      pidEl.textContent = metrics.workerInfo.pid || '-';
+    const activeWorkersEl = document.getElementById('active-workers');
+    if (activeWorkersEl) {
+      activeWorkersEl.textContent = metrics.crashTracking.activeWorkerCount || '-';
     }
   }
 }
@@ -631,46 +626,68 @@ async function triggerCrash(crashType) {
     if (response.ok) {
       const data = await response.json();
       addEventToLog({ level: 'info', message: data.message || 'Crash triggered' });
+      // Update session crash counter
+      sessionCrashCount++;
+      updateSessionCrashDisplay();
     }
   } catch (err) {
-    // Expected — the crash may kill the connection
+    // Expected — the crash may kill the connection, but crash likely succeeded
+    sessionCrashCount++;
+    updateSessionCrashDisplay();
     addEventToLog({ level: 'warning', message: `Crash request completed (connection may have been lost)` });
   }
 }
 
 /**
- * Triggers a multi-worker crash to make crash effects more visible.
- * Crashes multiple FPM workers simultaneously to cause temporary service degradation.
+ * Triggers a multi-worker crash by sending concurrent requests from the browser.
+ * This is more reliable than backend curl which can't reach itself on Azure.
  * 
- * @param {number} workerCount - Number of workers to crash (1-20)
+ * @param {number} workerCount - Number of workers to crash (1-10)
  * @param {string} crashType - The crash type to use for each worker
  */
 async function triggerMultiCrash(workerCount, crashType) {
-  const message = `🚨 DANGER: This will crash ${workerCount} PHP-FPM workers simultaneously!\n\n` +
+  const message = `🚨 DANGER: This will send ${workerCount} concurrent crash requests!\n\n` +
     `This may cause temporary service degradation until FPM respawns the workers.\n\n` +
     `Continue?`;
 
   if (!confirm(message)) return;
 
+  addEventToLog({ 
+    level: 'warning', 
+    message: `Initiating multi-worker crash: ${workerCount} workers via ${crashType}` 
+  });
+
+  const crashEndpoints = {
+    failfast: '/api/simulations/crash/failfast',
+    stackoverflow: '/api/simulations/crash/stackoverflow',
+    exception: '/api/simulations/crash/exception',
+    oom: '/api/simulations/crash/oom',
+  };
+
+  const endpoint = crashEndpoints[crashType] || crashEndpoints.failfast;
+  
+  // Send concurrent requests from the browser
+  const promises = [];
+  for (let i = 0; i < workerCount; i++) {
+    promises.push(
+      fetch(endpoint, { method: 'POST' })
+        .then(r => r.ok ? 1 : 0)
+        .catch(() => 0)
+    );
+  }
+
   try {
+    const results = await Promise.all(promises);
+    const successCount = results.reduce((a, b) => a + b, 0);
+    
+    // Update session crash counter
+    sessionCrashCount += successCount;
+    updateSessionCrashDisplay();
+    
     addEventToLog({ 
-      level: 'warning', 
-      message: `Initiating multi-worker crash: ${workerCount} workers via ${crashType}` 
+      level: 'info', 
+      message: `Multi-crash complete: ${successCount}/${workerCount} workers crashed` 
     });
-    
-    const response = await fetch('/api/simulations/crash/all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workerCount, crashType }),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      addEventToLog({ 
-        level: 'info', 
-        message: data.message || `Multi-crash initiated: ${workerCount} workers` 
-      });
-    }
   } catch (err) {
     addEventToLog({ 
       level: 'warning', 
@@ -680,45 +697,17 @@ async function triggerMultiCrash(workerCount, crashType) {
 }
 
 /**
- * Updates the crash statistics display in the UI.
- * Called whenever metrics are received with crash tracking data.
- * 
- * @param {Object} crashStats - Crash tracking data from metrics
+ * Session-based crash counter - tracks crashes triggered during this browser session.
+ * This avoids confusion from historical crash data stored on the server.
  */
-let lastCrashCount = 0;
-let lastRestartCount = 0;
+let sessionCrashCount = 0;
 
-function updateCrashStats(crashStats) {
+function updateSessionCrashDisplay() {
   const crashCountEl = document.getElementById('crash-count');
-  const restartsEl = document.getElementById('worker-restarts');
-  const activeWorkersEl = document.getElementById('active-workers');
-  
   if (crashCountEl) {
-    const newCount = crashStats.totalCrashes || 0;
-    crashCountEl.textContent = newCount;
-    
-    // Highlight if changed
-    if (newCount > lastCrashCount) {
-      crashCountEl.classList.add('highlight');
-      setTimeout(() => crashCountEl.classList.remove('highlight'), 500);
-      lastCrashCount = newCount;
-    }
-  }
-  
-  if (restartsEl) {
-    const newRestarts = crashStats.detectedRestarts || 0;
-    restartsEl.textContent = newRestarts;
-    
-    // Highlight if changed
-    if (newRestarts > lastRestartCount) {
-      restartsEl.classList.add('highlight');
-      setTimeout(() => restartsEl.classList.remove('highlight'), 500);
-      lastRestartCount = newRestarts;
-    }
-  }
-  
-  if (activeWorkersEl) {
-    activeWorkersEl.textContent = crashStats.activeWorkerCount || '-';
+    crashCountEl.textContent = sessionCrashCount;
+    crashCountEl.classList.add('highlight');
+    setTimeout(() => crashCountEl.classList.remove('highlight'), 500);
   }
 }
 

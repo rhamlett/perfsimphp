@@ -105,8 +105,8 @@
             <div class="tile-content">
               <div class="tile-icon">🧵</div>
               <div class="tile-info">
-                <span class="tile-label">FPM Workers Busy <span class="info-icon-small" title="Number of PHP-FPM worker processes currently handling requests. When all workers are busy, new requests queue. High values indicate blocking operations consuming the worker pool.">ⓘ</span></span>
-                <div class="tile-value"><span id="eventloop-value">0</span> <span class="tile-unit">busy</span></div>
+                <span class="tile-label">FPM Workers <span class="info-icon-small" title="Active: Total workers in the pool. Busy: Workers currently handling requests. When all workers are busy, new requests queue.">ⓘ</span></span>
+                <div class="tile-value"><span id="active-workers">-</span> active / <span id="eventloop-value">0</span> <span class="tile-unit">busy</span></div>
               </div>
             </div>
             <div class="metric-bar"><div class="metric-bar-fill" id="eventloop-bar" style="width: 0%;"></div></div>
@@ -297,26 +297,14 @@
              PHP: exit(1), infinite recursion, trigger_error, memory exhaustion
              Go: os.Exit(1), goroutine stack overflow, panic, runtime.MemStats exhaustion -->
         <div class="control-section crash-section">
-          <h3>💥 Application Crash <span class="info-icon" title="PHP-FPM worker terminates immediately. PHP-FPM master auto-restarts the worker. Watch for PID change in Event Log.">⚠️</span></h3>
-          <p class="control-description">Terminates PHP-FPM worker processes. FPM auto-restarts workers — observe crash count and worker PID changes below.</p>
+          <h3>💥 Application Crash <span class="info-icon" title="PHP-FPM worker terminates immediately. PHP-FPM master auto-restarts the worker.">⚠️</span></h3>
+          <p class="control-description">Terminates PHP-FPM worker processes. FPM auto-restarts workers. Crashes since page load:</p>
           
           <!-- Crash Stats Display -->
           <div id="crash-stats" class="crash-stats">
             <div class="stat-row">
-              <span class="stat-label">Total Crashes:</span>
+              <span class="stat-label">Crashes (this session):</span>
               <span id="crash-count" class="stat-value">0</span>
-            </div>
-            <div class="stat-row">
-              <span class="stat-label">Worker Restarts:</span>
-              <span id="worker-restarts" class="stat-value">0</span>
-            </div>
-            <div class="stat-row">
-              <span class="stat-label">Active Workers:</span>
-              <span id="active-workers" class="stat-value">-</span>
-            </div>
-            <div class="stat-row">
-              <span class="stat-label">Current Worker PID:</span>
-              <span id="current-worker-pid" class="stat-value">-</span>
             </div>
           </div>
 
@@ -338,11 +326,11 @@
           <form id="crash-all-form" class="crash-all-form">
             <label>
               Workers to Crash:
-              <input type="number" name="workerCount" id="crash-worker-count" min="2" max="20" value="5" class="crash-count-input">
+              <input type="number" name="workerCount" id="crash-worker-count" min="2" max="10" value="5" class="crash-count-input">
             </label>
             <button type="submit" class="btn-danger btn-crash-all">💥💥 Crash Multiple Workers</button>
           </form>
-          <p class="crash-warning">⚠️ Crash multiple workers to see visible service degradation!</p>
+          <p class="crash-warning">⚠️ Sends rapid concurrent requests to crash multiple FPM workers</p>
         </div>
       </div>
     </aside>
