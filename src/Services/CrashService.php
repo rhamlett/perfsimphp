@@ -113,6 +113,7 @@ class CrashService
         );
 
         // Schedule crash after response is sent
+        /** @noinspection PhpInfiniteRecursionInspection - Intentional infinite recursion for crash simulation */
         register_shutdown_function(function () {
             $recurse = function () use (&$recurse) {
                 $recurse();
@@ -178,6 +179,7 @@ class CrashService
         );
 
         // Schedule crash after response is sent
+        /** @noinspection PhpInfiniteLoopInspection - Intentional infinite loop for OOM crash simulation */
         register_shutdown_function(function () {
             // Rapidly allocate memory in 10MB chunks
             $allocations = [];
