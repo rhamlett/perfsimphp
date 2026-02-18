@@ -298,7 +298,28 @@
              Go: os.Exit(1), goroutine stack overflow, panic, runtime.MemStats exhaustion -->
         <div class="control-section crash-section">
           <h3>💥 Application Crash <span class="info-icon" title="PHP-FPM worker terminates immediately. PHP-FPM master auto-restarts the worker. Watch for PID change in Event Log.">⚠️</span></h3>
-          <p class="control-description">Terminates the PHP-FPM worker process. PHP-FPM master auto-restarts workers — observe the recovery and new Process ID in Event Log.</p>
+          <p class="control-description">Terminates PHP-FPM worker processes. FPM auto-restarts workers — observe crash count and worker PID changes below.</p>
+          
+          <!-- Crash Stats Display -->
+          <div id="crash-stats" class="crash-stats">
+            <div class="stat-row">
+              <span class="stat-label">Total Crashes:</span>
+              <span id="crash-count" class="stat-value">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Worker Restarts:</span>
+              <span id="worker-restarts" class="stat-value">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Active Workers:</span>
+              <span id="active-workers" class="stat-value">-</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Current Worker PID:</span>
+              <span id="current-worker-pid" class="stat-value">-</span>
+            </div>
+          </div>
+
           <form id="crash-form">
             <label>
               Crash Type:
@@ -310,9 +331,18 @@
                 <option value="oom">Out of Memory — Exceed memory_limit</option>
               </select>
             </label>
-            <button type="submit" class="btn-danger btn-crash">💥 Trigger Crash</button>
+            <button type="submit" class="btn-danger btn-crash">💥 Crash 1 Worker</button>
           </form>
-          <p class="crash-warning">⚠️ This will TERMINATE the PHP-FPM worker!</p>
+
+          <!-- Crash All Workers Form -->
+          <form id="crash-all-form" class="crash-all-form">
+            <label>
+              Workers to Crash:
+              <input type="number" name="workerCount" id="crash-worker-count" min="2" max="20" value="5" class="crash-count-input">
+            </label>
+            <button type="submit" class="btn-danger btn-crash-all">💥💥 Crash Multiple Workers</button>
+          </form>
+          <p class="crash-warning">⚠️ Crash multiple workers to see visible service degradation!</p>
         </div>
       </div>
     </aside>

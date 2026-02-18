@@ -50,6 +50,11 @@ namespace PerfSimPhp\Services;
 class CrashService
 {
     /**
+     * Number of concurrent requests to send for the "crash all workers" feature.
+     * This attempts to crash multiple FPM workers simultaneously.
+     */
+    private const MULTI_CRASH_WORKERS = 5;
+    /**
      * Crashes via exit(1) — immediate process termination.
      *
      * This terminates the PHP-FPM worker process. The FPM master will
@@ -61,12 +66,15 @@ class CrashService
      */
     public static function crashWithFailFast(): void
     {
+        // Track the crash
+        CrashTrackingService::recordCrash('failfast');
+        
         EventLogService::error(
             'SIMULATION_STARTED',
             'Crash simulation initiated: FailFast (exit)',
             null,
             'CRASH_FAILFAST',
-            ['method' => 'exit(1)']
+            ['method' => 'exit(1)', 'workerPid' => getmypid()]
         );
 
         // Schedule crash after response is sent
@@ -85,12 +93,15 @@ class CrashService
      */
     public static function crashWithStackOverflow(): void
     {
+        // Track the crash
+        CrashTrackingService::recordCrash('stackoverflow');
+        
         EventLogService::error(
             'SIMULATION_STARTED',
             'Crash simulation initiated: stack overflow',
             null,
             'CRASH_STACKOVERFLOW',
-            ['method' => 'infinite recursion']
+            ['method' => 'infinite recursion', 'workerPid' => getmypid()]
         );
 
         EventLogService::warn(
@@ -119,12 +130,15 @@ class CrashService
      */
     public static function crashWithFatalError(): void
     {
+        // Track the crash
+        CrashTrackingService::recordCrash('exception');
+        
         EventLogService::error(
             'SIMULATION_STARTED',
             'Crash simulation initiated: fatal error',
             null,
             'CRASH_FATAL',
-            ['method' => 'trigger_error(E_USER_ERROR)']
+            ['method' => 'trigger_error(E_USER_ERROR)', 'workerPid' => getmypid()]
         );
 
         // Schedule crash after response is sent
@@ -144,12 +158,15 @@ class CrashService
      */
     public static function crashWithMemoryExhaustion(): void
     {
+        // Track the crash
+        CrashTrackingService::recordCrash('oom');
+        
         EventLogService::error(
             'SIMULATION_STARTED',
             'Crash simulation initiated: memory exhaustion',
             null,
             'CRASH_MEMORY',
-            ['method' => 'memory exhaustion (OOM)']
+            ['method' => 'memory exhaustion (OOM)', 'workerPid' => getmypid()]
         );
 
         EventLogService::warn(
@@ -168,5 +185,111 @@ class CrashService
                 $allocations[] = str_repeat('X', 10 * 1024 * 1024); // 10MB
             }
         });
+    }
+
+    /**
+     * Initiates a "crash all workers" simulation by making concurrent requests
+     * to crash multiple FPM workers simultaneously.
+     *
+     * This creates a more visible crash effect since multiple workers are
+     * terminated at once, potentially causing temporary service degradation
+     * until FPM respawns enough workers.
+     *
+     * @param int $workerCount Number of workers to crash (default: 5)
+     * @param string $crashType The crash method to use for each worker
+     * @return array Summary of the initiated crashes
+     */
+    public static function initiateMultiWorkerCrash(int $workerCount = 5, string $crashType = 'failfast'): array
+    {
+        $workerCount = min(max(1, $workerCount), 20); // Clamp between 1-20
+        
+        EventLogService::error(
+            'MULTI_CRASH_INITIATED',
+            "Multi-worker crash initiated: crashing {$workerCount} FPM workers via {$crashType}",
+            null,
+            'MULTI_CRASH',
+            [
+                'workerCount' => $workerCount,
+                'crashType' => $crashType,
+                'initiatingPid' => getmypid(),
+            ]
+        );
+
+        // Get the base URL for internal requests
+        $baseUrl = self::getInternalBaseUrl();
+        $crashEndpoint = "{$baseUrl}/api/simulations/crash/{$crashType}";
+        
+        // Make concurrent crash requests using curl_multi
+        $multiHandle = curl_multi_init();
+        $handles = [];
+        
+        for ($i = 0; $i < $workerCount; $i++) {
+            $ch = curl_init($crashEndpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => '{}',
+            ]);
+            curl_multi_add_handle($multiHandle, $ch);
+            $handles[] = $ch;
+        }
+        
+        // Execute all requests concurrently
+        $running = null;
+        do {
+            curl_multi_exec($multiHandle, $running);
+            curl_multi_select($multiHandle);
+        } while ($running > 0);
+        
+        // Collect results
+        $successCount = 0;
+        foreach ($handles as $ch) {
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($httpCode === 202) {
+                $successCount++;
+            }
+            curl_multi_remove_handle($multiHandle, $ch);
+            curl_close($ch);
+        }
+        curl_multi_close($multiHandle);
+
+        EventLogService::info(
+            'MULTI_CRASH_COMPLETED',
+            "Multi-worker crash requests sent: {$successCount}/{$workerCount} successful",
+            null,
+            'MULTI_CRASH',
+            ['successCount' => $successCount, 'workerCount' => $workerCount]
+        );
+
+        return [
+            'requested' => $workerCount,
+            'initiated' => $successCount,
+            'crashType' => $crashType,
+        ];
+    }
+
+    /**
+     * Get the internal base URL for self-requests.
+     */
+    private static function getInternalBaseUrl(): string
+    {
+        // Try to detect from server variables
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+        $port = $_SERVER['SERVER_PORT'] ?? 80;
+        
+        // For internal requests, prefer localhost to avoid NAT/proxy issues
+        if (str_contains($host, ':')) {
+            return "{$scheme}://localhost" . substr($host, strpos($host, ':'));
+        }
+        
+        if ($port != 80 && $port != 443) {
+            return "{$scheme}://localhost:{$port}";
+        }
+        
+        return "{$scheme}://localhost";
     }
 }

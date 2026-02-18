@@ -117,4 +117,52 @@ class CrashController
 
         CrashService::crashWithMemoryExhaustion();
     }
+
+    /**
+     * POST /api/simulations/crash/all
+     * Crashes multiple FPM workers simultaneously to make crash effects more visible.
+     * 
+     * Request body:
+     *   - workerCount: number (optional, default 5, max 20)
+     *   - crashType: string (optional, default 'failfast')
+     */
+    public static function crashAll(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $workerCount = (int) ($input['workerCount'] ?? 5);
+        $crashType = $input['crashType'] ?? 'failfast';
+        
+        // Validate crash type
+        $validTypes = ['failfast', 'exception', 'oom'];
+        if (!in_array($crashType, $validTypes)) {
+            $crashType = 'failfast';
+        }
+        
+        $result = CrashService::initiateMultiWorkerCrash($workerCount, $crashType);
+        
+        http_response_code(202);
+        echo json_encode([
+            'message' => "Multi-worker crash initiated: {$result['initiated']} workers will crash",
+            'warning' => 'Multiple PHP-FPM workers will terminate. This may cause brief service interruption.',
+            'details' => $result,
+            'timestamp' => date('c'),
+        ]);
+    }
+
+    /**
+     * GET /api/simulations/crash/stats
+     * Returns crash statistics and worker tracking information.
+     */
+    public static function stats(): void
+    {
+        $stats = \PerfSimPhp\Services\CrashTrackingService::getCrashStats();
+        
+        http_response_code(200);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'stats' => $stats,
+            'currentWorkerPid' => getmypid(),
+            'timestamp' => date('c'),
+        ]);
+    }
 }

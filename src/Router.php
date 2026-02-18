@@ -175,6 +175,16 @@ class Router
             CrashController::memory();
             return null;
         }
+        // Multi-worker crash endpoint - crashes multiple FPM workers at once
+        if ($method === 'POST' && $path === '/api/simulations/crash/all') {
+            CrashController::crashAll();
+            return null;
+        }
+        // Crash stats endpoint
+        if ($method === 'GET' && $path === '/api/simulations/crash/stats') {
+            CrashController::stats();
+            return null;
+        }
 
         // Load test endpoints
         if ($method === 'GET' && $path === '/api/loadtest') {

@@ -36,6 +36,7 @@ use PerfSimPhp\SharedStorage;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\MemoryPressureService;
 use PerfSimPhp\Services\BlockingService;
+use PerfSimPhp\Services\CrashTrackingService;
 
 class MetricsService
 {
@@ -44,6 +45,9 @@ class MetricsService
      */
     public static function getMetrics(): array
     {
+        // Track worker activity on each metrics poll
+        $workerInfo = CrashTrackingService::recordWorkerActivity();
+        
         return [
             'timestamp' => date('c'),
             'cpu' => self::getCpuMetrics(),
@@ -51,6 +55,8 @@ class MetricsService
             'process' => self::getProcessMetrics(),
             'requestBlocking' => self::getBlockingMetrics(),
             'simulations' => self::getSimulationsStatus(),
+            'crashTracking' => self::getCrashTrackingMetrics(),
+            'workerInfo' => $workerInfo,
         ];
     }
 
@@ -342,6 +348,20 @@ class MetricsService
             'activeBlockingSimulations' => count($activeBlocking),
             'note' => 'PHP uses process-per-request; blocking one FPM worker does not affect others unless the pool is exhausted.',
         ];
+    }
+
+    /**
+     * Crash tracking metrics - shows crash statistics and worker turnover.
+     * 
+     * PHP-FPM automatically respawns workers after crashes, making crashes
+     * nearly invisible without explicit tracking. This provides visibility into:
+     * - Total crash count
+     * - Worker PID history
+     * - Detected worker restarts after crashes
+     */
+    public static function getCrashTrackingMetrics(): array
+    {
+        return CrashTrackingService::getCrashStats();
     }
 
     /**

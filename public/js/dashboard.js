@@ -170,6 +170,19 @@ function updateDashboard(metrics) {
   if (metrics.simulations) {
     updateActiveSimulations(metrics.simulations);
   }
+
+  // Update crash tracking stats
+  if (metrics.crashTracking) {
+    updateCrashStats(metrics.crashTracking);
+  }
+  
+  // Update current worker PID from worker info
+  if (metrics.workerInfo) {
+    const pidEl = document.getElementById('current-worker-pid');
+    if (pidEl) {
+      pidEl.textContent = metrics.workerInfo.pid || '-';
+    }
+  }
 }
 
 /**
@@ -625,6 +638,90 @@ async function triggerCrash(crashType) {
   }
 }
 
+/**
+ * Triggers a multi-worker crash to make crash effects more visible.
+ * Crashes multiple FPM workers simultaneously to cause temporary service degradation.
+ * 
+ * @param {number} workerCount - Number of workers to crash (1-20)
+ * @param {string} crashType - The crash type to use for each worker
+ */
+async function triggerMultiCrash(workerCount, crashType) {
+  const message = `🚨 DANGER: This will crash ${workerCount} PHP-FPM workers simultaneously!\n\n` +
+    `This may cause temporary service degradation until FPM respawns the workers.\n\n` +
+    `Continue?`;
+
+  if (!confirm(message)) return;
+
+  try {
+    addEventToLog({ 
+      level: 'warning', 
+      message: `Initiating multi-worker crash: ${workerCount} workers via ${crashType}` 
+    });
+    
+    const response = await fetch('/api/simulations/crash/all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workerCount, crashType }),
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      addEventToLog({ 
+        level: 'info', 
+        message: data.message || `Multi-crash initiated: ${workerCount} workers` 
+      });
+    }
+  } catch (err) {
+    addEventToLog({ 
+      level: 'warning', 
+      message: `Multi-crash request completed (some connections may have been lost)` 
+    });
+  }
+}
+
+/**
+ * Updates the crash statistics display in the UI.
+ * Called whenever metrics are received with crash tracking data.
+ * 
+ * @param {Object} crashStats - Crash tracking data from metrics
+ */
+let lastCrashCount = 0;
+let lastRestartCount = 0;
+
+function updateCrashStats(crashStats) {
+  const crashCountEl = document.getElementById('crash-count');
+  const restartsEl = document.getElementById('worker-restarts');
+  const activeWorkersEl = document.getElementById('active-workers');
+  
+  if (crashCountEl) {
+    const newCount = crashStats.totalCrashes || 0;
+    crashCountEl.textContent = newCount;
+    
+    // Highlight if changed
+    if (newCount > lastCrashCount) {
+      crashCountEl.classList.add('highlight');
+      setTimeout(() => crashCountEl.classList.remove('highlight'), 500);
+      lastCrashCount = newCount;
+    }
+  }
+  
+  if (restartsEl) {
+    const newRestarts = crashStats.detectedRestarts || 0;
+    restartsEl.textContent = newRestarts;
+    
+    // Highlight if changed
+    if (newRestarts > lastRestartCount) {
+      restartsEl.classList.add('highlight');
+      setTimeout(() => restartsEl.classList.remove('highlight'), 500);
+      lastRestartCount = newRestarts;
+    }
+  }
+  
+  if (activeWorkersEl) {
+    activeWorkersEl.textContent = crashStats.activeWorkerCount || '-';
+  }
+}
+
 // =========================================================================
 // SERVER INFORMATION
 // =========================================================================
@@ -829,6 +926,17 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const crashType = document.getElementById('crash-type')?.value || 'failfast';
       triggerCrash(crashType);
+    });
+  }
+
+  // ---- Crash All Workers Form ----
+  const crashAllForm = document.getElementById('crash-all-form');
+  if (crashAllForm) {
+    crashAllForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const workerCount = parseInt(document.getElementById('crash-worker-count')?.value || '5', 10);
+      const crashType = document.getElementById('crash-type')?.value || 'failfast';
+      triggerMultiCrash(workerCount, crashType);
     });
   }
 });
