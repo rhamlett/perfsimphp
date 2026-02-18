@@ -2,6 +2,8 @@
 
 An educational tool designed to help Azure support engineers practice diagnosing common PHP performance problems on Azure App Service. It intentionally generates controllable performance issues that mimic real-world scenarios.
 
+**Runtime:** PHP Blessed Image (PHP|8.4) on Linux
+
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Frhamlett%2Fperfsimphp%2Fmain%2Fazuredeploy.json)
 
 ## ✨ Features
