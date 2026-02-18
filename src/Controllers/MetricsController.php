@@ -119,70 +119,89 @@ class MetricsController
      */
     public static function internalProbes(): array
     {
-        $count = min((int) ($_GET['count'] ?? 5), 10);
-        $intervalMs = max((int) ($_GET['interval'] ?? 100), 50);
-        
-        // Determine internal port - Azure App Service uses 8080, nginx fallback is 80
-        $port = getenv('WEBSITES_PORT') ?: '8080';
-        $baseUrl = "http://127.0.0.1:{$port}/api/metrics/probe";
-        
-        $results = [];
-        $stats = LoadTestService::getCurrentStats();
-        
-        for ($i = 0; $i < $count; $i++) {
-            $probeStart = microtime(true);
+        try {
+            $count = min((int) ($_GET['count'] ?? 5), 10);
+            $intervalMs = max((int) ($_GET['interval'] ?? 100), 50);
             
-            // Send internal probe request
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $baseUrl . '?t=' . microtime(true),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 30,
-                CURLOPT_CONNECTTIMEOUT => 5,
-                CURLOPT_HTTPHEADER => ['X-Internal-Probe: true'],
-            ]);
+            // Hardcode port 8080 - this is Azure App Service standard
+            $port = '8080';
+            $baseUrl = "http://127.0.0.1:{$port}/api/metrics/probe";
             
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $error = curl_error($ch);
-            $errno = curl_errno($ch);
-            curl_close($ch);
-            
-            $probeEnd = microtime(true);
-            $latencyMs = ($probeEnd - $probeStart) * 1000;
-            
-            $probeResult = [
-                'latencyMs' => round($latencyMs, 2),
-                'timestamp' => (int) ($probeEnd * 1000),
-                'success' => $httpCode === 200 && empty($error),
-                'loadTestActive' => $stats['currentConcurrentRequests'] > 0,
-                'loadTestConcurrent' => $stats['currentConcurrentRequests'],
-            ];
-            
-            // Add debug info if probe failed
-            if ($httpCode !== 200 || !empty($error)) {
-                $probeResult['_debug'] = [
-                    'httpCode' => $httpCode,
-                    'error' => $error,
-                    'errno' => $errno,
-                    'url' => $baseUrl,
+            // Check if curl is available
+            if (!function_exists('curl_init')) {
+                return [
+                    'error' => 'curl extension not available',
+                    'probes' => [],
+                    'count' => 0,
                 ];
             }
             
-            $results[] = $probeResult;
+            $results = [];
+            $stats = LoadTestService::getCurrentStats();
             
-            // Wait between probes (except after last one)
-            if ($i < $count - 1) {
-                usleep($intervalMs * 1000);
+            for ($i = 0; $i < $count; $i++) {
+                $probeStart = microtime(true);
+                
+                // Send internal probe request
+                $ch = curl_init();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => $baseUrl . '?t=' . microtime(true),
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                    CURLOPT_HTTPHEADER => ['X-Internal-Probe: true'],
+                ]);
+                
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $error = curl_error($ch);
+                $errno = curl_errno($ch);
+                curl_close($ch);
+                
+                $probeEnd = microtime(true);
+                $latencyMs = ($probeEnd - $probeStart) * 1000;
+                
+                $probeResult = [
+                    'latencyMs' => round($latencyMs, 2),
+                    'timestamp' => (int) ($probeEnd * 1000),
+                    'success' => $httpCode === 200 && empty($error),
+                    'loadTestActive' => $stats['currentConcurrentRequests'] > 0,
+                    'loadTestConcurrent' => $stats['currentConcurrentRequests'],
+                ];
+                
+                // Add debug info if probe failed
+                if ($httpCode !== 200 || !empty($error)) {
+                    $probeResult['_debug'] = [
+                        'httpCode' => $httpCode,
+                        'error' => $error,
+                        'errno' => $errno,
+                        'url' => $baseUrl,
+                    ];
+                }
+                
+                $results[] = $probeResult;
+                
+                // Wait between probes (except after last one)
+                if ($i < $count - 1) {
+                    usleep($intervalMs * 1000);
+                }
             }
+            
+            return [
+                'probes' => $results,
+                'count' => count($results),
+                'intervalMs' => $intervalMs,
+                'pid' => getmypid(),
+                'internalPort' => $port,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'probes' => [],
+                'count' => 0,
+            ];
         }
-        
-        return [
-            'probes' => $results,
-            'count' => count($results),
-            'intervalMs' => $intervalMs,
-            'pid' => getmypid(),
-            'internalPort' => $port,
-        ];
     }
 }
