@@ -191,15 +191,48 @@ class CrashService
      */
     public static function initiateMultiWorkerCrash(int $workerCount = 5, string $crashType = 'failfast'): array
     {
-        $workerCount = min(max(1, $workerCount), 20); // Clamp between 1-20
+        $requestedCount = min(max(1, $workerCount), 20); // Clamp between 1-20
+        
+        // Get actual available workers - subtract 1 because this worker handles crashAll
+        $activeWorkers = CrashTrackingService::getActiveWorkerCount();
+        $availableTocrash = max(0, $activeWorkers - 1);
+        
+        // Limit to actual available workers
+        $workerCount = min($requestedCount, $availableTocrash);
+        
+        // If no workers available to crash, return early
+        if ($workerCount <= 0) {
+            EventLogService::warn(
+                'MULTI_CRASH_SKIPPED',
+                "Multi-worker crash skipped: requested {$requestedCount} but only {$activeWorkers} workers active (1 handling this request)",
+                null,
+                'MULTI_CRASH',
+                [
+                    'requestedCount' => $requestedCount,
+                    'activeWorkers' => $activeWorkers,
+                    'availableToCrash' => $availableTocrash,
+                ]
+            );
+            
+            return [
+                'requested' => $requestedCount,
+                'available' => $availableTocrash,
+                'initiated' => 0,
+                'crashType' => $crashType,
+                'message' => "No workers available to crash (only {$activeWorkers} active, 1 handling this request)",
+            ];
+        }
         
         EventLogService::error(
             'MULTI_CRASH_INITIATED',
-            "Multi-worker crash initiated: crashing {$workerCount} FPM workers via {$crashType}",
+            "Multi-worker crash initiated: crashing {$workerCount} of {$activeWorkers} FPM workers via {$crashType}" . 
+                ($requestedCount > $workerCount ? " (requested {$requestedCount}, limited to available)" : ""),
             null,
             'MULTI_CRASH',
             [
-                'workerCount' => $workerCount,
+                'requestedCount' => $requestedCount,
+                'actualCount' => $workerCount,
+                'activeWorkers' => $activeWorkers,
                 'crashType' => $crashType,
                 'initiatingPid' => getmypid(),
             ]
@@ -248,14 +281,21 @@ class CrashService
 
         EventLogService::info(
             'MULTI_CRASH_COMPLETED',
-            "Multi-worker crash requests sent: {$successCount}/{$workerCount} successful",
+            "Multi-worker crash requests completed: {$successCount} of {$workerCount} workers crashed" .
+                ($requestedCount > $workerCount ? " (requested {$requestedCount}, limited to {$workerCount} available)" : ""),
             null,
             'MULTI_CRASH',
-            ['successCount' => $successCount, 'workerCount' => $workerCount]
+            [
+                'successCount' => $successCount,
+                'attemptedCount' => $workerCount,
+                'requestedCount' => $requestedCount,
+                'activeWorkers' => $activeWorkers,
+            ]
         );
 
         return [
-            'requested' => $workerCount,
+            'requested' => $requestedCount,
+            'available' => $availableTocrash,
             'initiated' => $successCount,
             'crashType' => $crashType,
         ];

@@ -160,10 +160,16 @@ class CrashController
         
         $result = CrashService::initiateMultiWorkerCrash($workerCount, $crashType);
         
+        // Build message that reflects actual vs requested
+        $message = "Multi-worker crash initiated: {$result['initiated']} workers will crash";
+        if ($result['requested'] > $result['available']) {
+            $message .= " (requested {$result['requested']}, but only {$result['available']} were available)";
+        }
+        
         header('Content-Type: application/json');
         http_response_code(202);
         echo json_encode([
-            'message' => "Multi-worker crash initiated: {$result['initiated']} workers will crash",
+            'message' => $message,
             'warning' => 'Multiple PHP-FPM workers will terminate. This may cause brief service interruption.',
             'details' => $result,
             'timestamp' => date('c'),
