@@ -224,10 +224,12 @@ class LoadTestService
      */
     private static function allocateMemory(int $sizeKb): string
     {
-        // Create a 1KB block and repeat it
-        // Using random bytes makes it harder for PHP to optimize away
-        $block = random_bytes(1024);
-        return str_repeat($block, $sizeKb);
+        // Create a 1KB block using only printable characters
+        // Avoids random_bytes() which can exhaust entropy under high load
+        // Pattern is seeded with microtime for uniqueness per request
+        $seed = substr(md5((string) microtime(true)), 0, 16);
+        $block = str_repeat($seed, 64); // 16 chars × 64 = 1024 bytes
+        return str_repeat($block, max(1, $sizeKb));
     }
 
     /**
