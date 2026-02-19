@@ -256,6 +256,7 @@ class MetricsService
         $metrics = [
             'usedMb' => $usedMb + $simulatedMb, // Include simulated allocations in working set
             'rssMb' => $rssMb,
+            'fpmPoolRssMb' => self::getFpmPoolRss(), // Total RSS across all PHP-FPM workers
             'phpUsageMb' => $usedMb,
             'simulatedMb' => $simulatedMb,
             'phpPeakMb' => round($phpPeak / 1024 / 1024, 2),
@@ -324,6 +325,65 @@ class MetricsService
         
         // Fallback to memory_get_usage
         return round(memory_get_usage(true) / 1024 / 1024, 2);
+    }
+
+    /**
+     * Get total RSS memory across ALL PHP-FPM worker processes.
+     * 
+     * This provides a true picture of memory usage - not just the current worker,
+     * but all workers in the FPM pool combined.
+     * 
+     * @return float Total RSS in MB across all php-fpm processes
+     */
+    private static function getFpmPoolRss(): float
+    {
+        // Method 1: Parse /proc for all php-fpm processes (Linux)
+        if (is_dir('/proc')) {
+            $totalRss = 0;
+            $workerCount = 0;
+            
+            // Scan /proc for process directories
+            $procs = glob('/proc/[0-9]*', GLOB_ONLYDIR);
+            foreach ($procs as $procDir) {
+                $cmdlineFile = $procDir . '/cmdline';
+                $statusFile = $procDir . '/status';
+                
+                if (!is_readable($cmdlineFile) || !is_readable($statusFile)) {
+                    continue;
+                }
+                
+                // Check if this is a php-fpm process
+                $cmdline = @file_get_contents($cmdlineFile);
+                if ($cmdline === false) {
+                    continue;
+                }
+                
+                // PHP-FPM workers show as "php-fpm: pool www" or similar
+                if (strpos($cmdline, 'php-fpm') === false && strpos($cmdline, 'php') === false) {
+                    continue;
+                }
+                
+                // Read VmRSS from status
+                $status = @file_get_contents($statusFile);
+                if ($status !== false && preg_match('/VmRSS:\s+(\d+)\s+kB/', $status, $matches)) {
+                    $totalRss += (int)$matches[1];
+                    $workerCount++;
+                }
+            }
+            
+            if ($workerCount > 0) {
+                return round($totalRss / 1024, 2); // Convert kB to MB
+            }
+        }
+        
+        // Method 2: Use ps command as fallback (works on macOS too)
+        $output = @shell_exec('ps -eo rss,comm 2>/dev/null | grep -E "php-fpm|php" | awk \'{sum+=$1} END {print sum}\'');
+        if ($output !== null && is_numeric(trim($output))) {
+            return round((int)trim($output) / 1024, 2); // ps rss is in kB
+        }
+        
+        // Fallback: just return current process RSS
+        return self::getProcessRss();
     }
 
     /**

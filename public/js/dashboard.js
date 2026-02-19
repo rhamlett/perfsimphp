@@ -120,7 +120,7 @@ function initDashboard() {
  * @param {Object} metrics - Metrics data from server
  *   Expected shape: {
  *     cpu: { usagePercent },
- *     memory: { usedMb, rssMb, totalSystemMb },
+ *     memory: { usedMb, rssMb, fpmPoolRssMb, totalSystemMb },
  *     process: { pid, uptime, activeWorkers },
  *     simulations: { ... }
  *   }
@@ -152,10 +152,10 @@ function updateDashboard(metrics) {
     eventloopValue.textContent = workers + ' busy';
   }
 
-  // RSS value
+  // RSS value - use FPM pool total RSS for accurate pool-wide measurement
   const rssValue = document.getElementById('rss-value');
   if (rssValue) {
-    rssValue.textContent = (metrics.memory?.rssMb || 0).toFixed(0) + ' MB';
+    rssValue.textContent = (metrics.memory?.fpmPoolRssMb || metrics.memory?.rssMb || 0).toFixed(0);
   }
 
   // Server connection status

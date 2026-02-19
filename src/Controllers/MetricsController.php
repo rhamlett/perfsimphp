@@ -64,15 +64,21 @@ class MetricsController
         }
         $blockingSimCount = $blockingWork ? 1 : 0;
         
-        // Memory pressure active: Touch the allocated memory (read it)
+        // Memory pressure active: Load allocated memory INTO this worker's heap
+        // This creates REAL memory pressure - the worker's RSS will increase
         $memorySims = SimulationTrackerService::getActiveSimulationsByType('MEMORY_PRESSURE');
         if (count($memorySims) > 0) {
-            // Read from shared storage to cause real memory access
             $totalMb = MemoryPressureService::getTotalAllocatedMb();
             if ($totalMb > 0) {
-                // Access the allocations to prevent optimization
-                $allocations = MemoryPressureService::getActiveAllocations();
-                $workDone['memory'] = $totalMb . 'MB';
+                // Load data into worker heap (capped at 256MB to prevent OOM)
+                $memoryLoad = MemoryPressureService::loadIntoWorker(256);
+                $workDone['memory'] = [
+                    'allocatedMb' => $totalMb,
+                    'loadedMb' => $memoryLoad['loadedMb'],
+                    'method' => $memoryLoad['method'],
+                    'rssBefore' => $memoryLoad['workerRssBefore'],
+                    'rssAfter' => $memoryLoad['workerRssAfter'],
+                ];
             }
         }
         

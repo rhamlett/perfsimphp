@@ -194,6 +194,105 @@ class MemoryPressureService
         return count($allocs);
     }
 
+    /**
+     * Loads allocated memory INTO the current PHP worker's heap.
+     * 
+     * This is crucial for realistic memory pressure simulation. Without this,
+     * APCu data or temp files don't affect the worker's RSS/heap.
+     * 
+     * Returns the amount of memory actually loaded (may be capped to prevent OOM).
+     * 
+     * @param int $maxMb Maximum MB to load (default: 256MB to prevent worker OOM)
+     * @return array{loadedMb: int, method: string, workerRssBefore: float, workerRssAfter: float}
+     */
+    public static function loadIntoWorker(int $maxMb = 256): array
+    {
+        $allocs = SharedStorage::get(self::ALLOCATIONS_KEY, []);
+        if (empty($allocs)) {
+            return ['loadedMb' => 0, 'method' => 'none', 'workerRssBefore' => 0, 'workerRssAfter' => 0];
+        }
+
+        // Measure RSS before
+        $rssBefore = self::getWorkerRss();
+        
+        $loadedMb = 0;
+        $method = 'none';
+        $loadedData = []; // Hold references to prevent GC
+
+        foreach ($allocs as $id => $allocInfo) {
+            if ($loadedMb >= $maxMb) {
+                break; // Cap to prevent worker OOM
+            }
+
+            $allocMethod = $allocInfo['method'] ?? 'unknown';
+            $sizeMb = $allocInfo['sizeMb'] ?? 0;
+            $toLoad = min($sizeMb, $maxMb - $loadedMb);
+
+            if ($allocMethod === 'apcu' && function_exists('apcu_fetch')) {
+                // Load APCu chunks into PHP memory
+                for ($i = 0; $i < $toLoad && ($loadedMb + $i) < $maxMb; $i++) {
+                    $key = "perfsim_memblock_{$id}_{$i}";
+                    $data = apcu_fetch($key);
+                    if ($data !== false) {
+                        // Copy to local variable to force into PHP heap
+                        $loadedData[] = $data;
+                        $loadedMb++;
+                    }
+                }
+                $method = 'apcu';
+            } elseif ($allocMethod === 'file') {
+                // Load file into PHP memory
+                $file = dirname(__DIR__, 2) . "/storage/memblock_{$id}.bin";
+                if (file_exists($file)) {
+                    // Read in chunks to load into heap
+                    $fp = fopen($file, 'rb');
+                    if ($fp) {
+                        for ($i = 0; $i < $toLoad && ($loadedMb + $i) < $maxMb; $i++) {
+                            $chunk = fread($fp, 1024 * 1024); // 1MB
+                            if ($chunk !== false && strlen($chunk) > 0) {
+                                $loadedData[] = $chunk;
+                                $loadedMb++;
+                            } else {
+                                break;
+                            }
+                        }
+                        fclose($fp);
+                    }
+                    $method = 'file';
+                }
+            }
+        }
+
+        // Measure RSS after (data is still in $loadedData)
+        $rssAfter = self::getWorkerRss();
+
+        // Keep data alive until end of request (prevent GC optimization)
+        // Store in static to ensure it survives this function
+        static $memoryHold = null;
+        $memoryHold = $loadedData;
+
+        return [
+            'loadedMb' => $loadedMb,
+            'method' => $method,
+            'workerRssBefore' => $rssBefore,
+            'workerRssAfter' => $rssAfter,
+        ];
+    }
+
+    /**
+     * Get current worker's RSS in MB.
+     */
+    private static function getWorkerRss(): float
+    {
+        if (is_readable('/proc/self/status')) {
+            $status = file_get_contents('/proc/self/status');
+            if (preg_match('/VmRSS:\s+(\d+)\s+kB/', $status, $matches)) {
+                return round((int)$matches[1] / 1024, 2);
+            }
+        }
+        return round(memory_get_usage(true) / 1024 / 1024, 2);
+    }
+
     // =========================================================================
     // INTERNAL: Allocation and Release
     // =========================================================================
