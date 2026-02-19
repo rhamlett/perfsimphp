@@ -1,43 +1,34 @@
 <?php
 /**
  * =============================================================================
- * LOAD TEST SERVICE — Simulated Application Under Load
+ * LOAD TEST SERVICE — Real Work-Based Load Testing
  * =============================================================================
  *
  * PURPOSE:
  *   Provides a load test endpoint designed for Azure Load Testing (or similar
- *   tools like JMeter, k6, Gatling). Simulates realistic application behavior
- *   that degrades gracefully under increasing concurrency, eventually leading
- *   to the 230-second Azure App Service frontend timeout.
+ *   tools like JMeter, k6, Gatling). Performs REAL work that creates observable
+ *   metrics impact — no artificial usleep() delays.
  *
  * QUERY PARAMETERS:
- *   - cpuWorkMs (default: 100)         — Milliseconds of real CPU work per cycle
- *   - memorySizeKb (default: 10000)    — KB of memory to allocate (10MB default)
- *   - baselineDelayMs (default: 1000)  — Base response time before degradation
- *   - softLimit (default: 20)          — Concurrent requests before degradation starts
- *   - degradationFactor (default: 1000)— Ms added per concurrent request over softLimit
+ *   - cpuWorkMs (default: 50)          — Milliseconds of CPU work per cycle (hash_pbkdf2)
+ *   - memorySizeKb (default: 5000)     — KB of memory to allocate (5MB default)
+ *   - fileIoKb (default: 100)          — KB to write/read per cycle (disk I/O)
+ *   - jsonDepth (default: 5)           — Nested depth for JSON encode/decode work
+ *   - memoryChurnKb (default: 500)     — KB to churn (allocate/serialize) per cycle
+ *   - targetDurationMs (default: 1000) — Target total duration for the request
+ *   - softLimit (default: 20)          — Concurrent requests before degradation
+ *   - degradationFactor (default: 1.5) — Multiplier per concurrent over softLimit
  *
- * ALGORITHM (per request):
- *   1. INCREMENT concurrent request counter (via SharedStorage — atomic modify)
- *   2. ALLOCATE MEMORY: PHP string buffer to consume process memory
- *   3. CALCULATE TOTAL DELAY:
- *      totalDelay = baselineDelayMs + max(0, concurrent - softLimit) * degradationFactor
- *      Example with defaults: 30 concurrent = 1000 + (30-20)*1000 = 11000ms
- *   4. SUSTAINED WORK LOOP: interleave real CPU work (hash_pbkdf2) and usleep()
- *   5. RANDOM EXCEPTIONS: After 120s elapsed, 20% chance per cycle
- *   6. DECREMENT counter; return timing diagnostics
+ * WORK TYPES (all contribute to visible metrics):
+ *   1. CPU Work      — hash_pbkdf2 cryptographic operations (CPU metrics)
+ *   2. File I/O      — Write/read temp files (I/O metrics, disk contention)
+ *   3. Memory Churn  — Allocate/serialize/deallocate arrays (memory metrics)
+ *   4. JSON Process  — Deep encode/decode of nested structures (CPU + memory)
  *
- * PHP vs NODE.JS DIFFERENCES:
- *   - Concurrent counter uses SharedStorage (APCu/file) because each PHP
- *     request is a separate process — no shared memory by default.
- *   - Memory allocation is within the current request (process memory),
- *     released when request completes (unlike Node.js persistent heap).
- *   - usleep() is used instead of async sleep (PHP is synchronous).
- *   - CPU work uses hash_pbkdf2() for measurable CPU load in metrics.
- *
- * EXCEPTION POOL:
- *   15 different exception types simulating real-world PHP failures.
- *   These produce diverse error signatures in Application Insights.
+ * DEGRADATION FORMULA:
+ *   Each work cycle takes: cpuWorkMs + fileIoMs + memoryChurnMs + jsonWorkMs
+ *   Over soft limit: cycles *= degradationFactor ^ (concurrent - softLimit)
+ *   This creates exponential backpressure visible in all metrics.
  *
  * @module src/Services/LoadTestService.php
  */
@@ -60,16 +51,19 @@ class LoadTestService
     /** Probability of throwing exception per check after threshold */
     private const EXCEPTION_PROBABILITY = 0.20;
 
-    /** Milliseconds of usleep per cycle in the sustained work loop */
-    private const SLEEP_PER_CYCLE_MS = 50;
+    /** Directory for temp file I/O work */
+    private const TEMP_DIR = '/tmp/loadtest';
 
     /** Default request parameters */
     private const DEFAULTS = [
-        'cpuWorkMs' => 100,          // Ms of real CPU work per cycle (hash_pbkdf2)
-        'memorySizeKb' => 10000,     // 10MB per request (increase to stress memory)
-        'baselineDelayMs' => 1000,   // Base response time before degradation
-        'softLimit' => 20,           // Concurrent requests before degradation
-        'degradationFactor' => 1000, // Ms added per request over softLimit
+        'cpuWorkMs' => 50,           // Ms of CPU work per cycle (hash_pbkdf2)
+        'memorySizeKb' => 5000,      // 5MB persistent allocation
+        'fileIoKb' => 100,           // KB to write/read per cycle
+        'jsonDepth' => 5,            // Nesting depth for JSON work
+        'memoryChurnKb' => 500,      // KB to churn per cycle
+        'targetDurationMs' => 1000,  // Target request duration
+        'softLimit' => 20,           // Concurrent before degradation
+        'degradationFactor' => 1.5,  // Multiplier per concurrent over limit
     ];
 
     /**
@@ -92,85 +86,102 @@ class LoadTestService
         // Merge with defaults
         $params = array_merge(self::DEFAULTS, $request);
 
+        // Ensure temp directory exists
+        self::ensureTempDir();
+
         // Increment concurrent counter
         $currentConcurrent = self::incrementConcurrent();
 
-        // Log load test start with concurrency info
+        // Calculate degradation multiplier (exponential backpressure)
         $overLimit = max(0, $currentConcurrent - $params['softLimit']);
-        $expectedDegradation = $overLimit * $params['degradationFactor'];
+        $degradationMultiplier = $overLimit > 0 
+            ? pow($params['degradationFactor'], $overLimit)
+            : 1.0;
+        
+        // Work metrics tracking
+        $workMetrics = [
+            'cpuWorkMs' => 0,
+            'fileIoMs' => 0,
+            'memoryChurnMs' => 0,
+            'jsonWorkMs' => 0,
+            'cycles' => 0,
+        ];
+
         EventLogService::info(
             'LOADTEST_START',
-            "Load test request started (concurrent: {$currentConcurrent}, degradation: {$expectedDegradation}ms)",
+            "Load test started (concurrent: {$currentConcurrent}, degradation: {$degradationMultiplier}x)",
             null,
             'loadtest',
             [
                 'concurrent' => $currentConcurrent,
                 'softLimit' => $params['softLimit'],
                 'overLimit' => $overLimit,
-                'expectedDegradationMs' => $expectedDegradation,
-                'baselineDelayMs' => $params['baselineDelayMs'],
+                'degradationMultiplier' => round($degradationMultiplier, 2),
+                'targetDurationMs' => $params['targetDurationMs'],
             ]
         );
 
         $startTime = microtime(true);
-        $totalCpuWorkDone = 0;
-        $workCompleted = false;
         $allocatedBytes = $params['memorySizeKb'] * 1024;
         $memory = null;
+        $tempFile = null;
 
         try {
             // -----------------------------------------------------------------
-            // STEP 1: ALLOCATE MEMORY
-            //
-            // Allocate a string buffer on the PHP process heap.
-            // This is visible in memory_get_usage() and Azure metrics.
-            // Memory is released when this request completes.
+            // STEP 1: ALLOCATE PERSISTENT MEMORY
             // -----------------------------------------------------------------
             $memory = self::allocateMemory($params['memorySizeKb']);
 
-            // -----------------------------------------------------------------
-            // STEP 2: CALCULATE TOTAL REQUEST DURATION
-            // Formula: baselineDelayMs + max(0, concurrent - softLimit) * degradationFactor
-            // -----------------------------------------------------------------
-            $overLimit = max(0, $currentConcurrent - $params['softLimit']);
-            $degradationDelayMs = $overLimit * $params['degradationFactor'];
-            $totalDurationMs = $params['baselineDelayMs'] + $degradationDelayMs;
+            // Create unique temp file for this request
+            $tempFile = self::TEMP_DIR . '/lt_' . getmypid() . '_' . uniqid() . '.tmp';
 
             // -----------------------------------------------------------------
-            // STEP 3: SUSTAINED WORK LOOP
-            // Interleave real CPU work (hash_pbkdf2) and usleep() until done.
+            // STEP 2: CALCULATE TARGET DURATION WITH DEGRADATION
+            // More concurrent requests = more work cycles = longer duration
             // -----------------------------------------------------------------
-            $cpuWorkMsPerCycle = $params['cpuWorkMs'];
+            $targetDurationMs = $params['targetDurationMs'] * $degradationMultiplier;
 
-            while ((microtime(true) - $startTime) * 1000 < $totalDurationMs) {
-                // CPU work phase - uses hash_pbkdf2 for real measurable CPU load
-                if ($cpuWorkMsPerCycle > 0) {
-                    $actualWorkMs = self::performCpuWork($cpuWorkMsPerCycle);
-                    $totalCpuWorkDone += $actualWorkMs;
+            // -----------------------------------------------------------------
+            // STEP 3: REAL WORK LOOP (NO usleep!)
+            // Each cycle performs actual work that shows in metrics
+            // -----------------------------------------------------------------
+            while ((microtime(true) - $startTime) * 1000 < $targetDurationMs) {
+                $workMetrics['cycles']++;
+
+                // CPU Work - cryptographic hashing (visible in CPU metrics)
+                if ($params['cpuWorkMs'] > 0) {
+                    $workMetrics['cpuWorkMs'] += self::performCpuWork($params['cpuWorkMs']);
                 }
 
-                // Touch memory to prevent optimization
+                // File I/O Work - write/read temp file (visible in I/O metrics)
+                if ($params['fileIoKb'] > 0) {
+                    $workMetrics['fileIoMs'] += self::performFileIoWork($tempFile, $params['fileIoKb']);
+                }
+
+                // Memory Churn - allocate/serialize/free (visible in memory metrics)
+                if ($params['memoryChurnKb'] > 0) {
+                    $workMetrics['memoryChurnMs'] += self::performMemoryChurnWork($params['memoryChurnKb']);
+                }
+
+                // JSON Processing - deep encode/decode (visible in CPU + alloc)
+                if ($params['jsonDepth'] > 0) {
+                    $workMetrics['jsonWorkMs'] += self::performJsonWork($params['jsonDepth']);
+                }
+
+                // Touch persistent memory to prevent optimization
                 self::touchMemory($memory);
 
                 // Check for timeout exception (20% chance after 120s)
                 self::checkAndThrowException($startTime);
-
-                // Sleep phase (yield CPU)
-                $remainingMs = $totalDurationMs - ((microtime(true) - $startTime) * 1000);
-                $sleepMs = min(self::SLEEP_PER_CYCLE_MS, max(0, $remainingMs));
-                if ($sleepMs > 0) {
-                    usleep((int) ($sleepMs * 1000));
-                }
             }
 
-            $workCompleted = true;
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             return self::buildResult(
                 $elapsedMs,
                 $currentConcurrent,
-                $totalDurationMs,
-                $totalCpuWorkDone,
+                $targetDurationMs,
+                $workMetrics,
                 $allocatedBytes,
                 true,
                 false,
@@ -201,16 +212,25 @@ class LoadTestService
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
             self::updateStats($elapsedMs);
 
-            // Log completion
+            // Clean up temp file
+            if ($tempFile && file_exists($tempFile)) {
+                @unlink($tempFile);
+            }
+
+            // Log completion with work metrics
             EventLogService::info(
                 'LOADTEST_COMPLETE',
-                "Load test completed in {$elapsedMs}ms (concurrent was: {$currentConcurrent})",
+                "Load test: {$elapsedMs}ms, {$workMetrics['cycles']} cycles (concurrent: {$currentConcurrent})",
                 null,
                 'loadtest',
                 [
                     'elapsedMs' => $elapsedMs,
                     'concurrentAtStart' => $currentConcurrent,
-                    'memoryAllocatedKb' => $params['memorySizeKb'],
+                    'cycles' => $workMetrics['cycles'],
+                    'cpuWorkMs' => round($workMetrics['cpuWorkMs'], 1),
+                    'fileIoMs' => round($workMetrics['fileIoMs'], 1),
+                    'memoryChurnMs' => round($workMetrics['memoryChurnMs'], 1),
+                    'jsonWorkMs' => round($workMetrics['jsonWorkMs'], 1),
                 ]
             );
 
@@ -314,6 +334,161 @@ class LoadTestService
     }
 
     /**
+     * Ensures the temp directory exists for file I/O work.
+     */
+    private static function ensureTempDir(): void
+    {
+        if (!is_dir(self::TEMP_DIR)) {
+            @mkdir(self::TEMP_DIR, 0755, true);
+        }
+    }
+
+    /**
+     * Performs file I/O work - writes and reads data to/from disk.
+     * This creates real I/O load visible in disk metrics.
+     *
+     * @param string $tempFile Path to temp file
+     * @param int $sizeKb Amount of data to write/read in KB
+     * @return float Milliseconds spent on I/O
+     */
+    private static function performFileIoWork(string $tempFile, int $sizeKb): float
+    {
+        if ($sizeKb <= 0) return 0;
+
+        $startTime = microtime(true);
+
+        // Generate data to write (use random-ish content to prevent compression)
+        $data = '';
+        for ($i = 0; $i < $sizeKb; $i++) {
+            $data .= md5((string)($i + microtime(true))) . str_repeat('x', 992); // ~1KB chunks
+        }
+
+        // Write to file (creates real disk I/O)
+        file_put_contents($tempFile, $data);
+
+        // Read it back (forces actual disk read, not just cache)
+        clearstatcache(true, $tempFile);
+        $readData = file_get_contents($tempFile);
+
+        // Verify to prevent optimization
+        if (strlen($readData) !== strlen($data)) {
+            error_log("[LoadTest] File I/O verification failed");
+        }
+
+        return (microtime(true) - $startTime) * 1000;
+    }
+
+    /**
+     * Performs memory churn work - allocates, serializes, and frees memory.
+     * This creates real memory pressure visible in memory metrics.
+     *
+     * @param int $sizeKb Amount of memory to churn in KB
+     * @return float Milliseconds spent on memory operations
+     */
+    private static function performMemoryChurnWork(int $sizeKb): float
+    {
+        if ($sizeKb <= 0) return 0;
+
+        $startTime = microtime(true);
+
+        // Create a complex nested array structure (harder to optimize away)
+        $depth = 10;
+        $elementsPerLevel = max(1, (int)($sizeKb / $depth));
+        
+        $data = [];
+        for ($i = 0; $i < $elementsPerLevel; $i++) {
+            $nested = ['id' => $i, 'timestamp' => microtime(true)];
+            $current = &$nested;
+            for ($d = 0; $d < $depth; $d++) {
+                $current['data'] = str_repeat('x', 100);
+                $current['child'] = ['level' => $d];
+                $current = &$current['child'];
+            }
+            $data[] = $nested;
+        }
+
+        // Serialize to string (forces memory allocation for string representation)
+        $serialized = serialize($data);
+
+        // Unserialize (more memory allocation)
+        $restored = unserialize($serialized);
+
+        // Force use of restored data to prevent optimization
+        $checksum = count($restored);
+
+        // Explicit cleanup (triggers GC work)
+        unset($data, $serialized, $restored);
+
+        return (microtime(true) - $startTime) * 1000;
+    }
+
+    /**
+     * Performs JSON processing work - encodes and decodes nested structures.
+     * This creates real CPU + memory load typical of API processing.
+     *
+     * @param int $depth Nesting depth of JSON structure
+     * @return float Milliseconds spent on JSON operations
+     */
+    private static function performJsonWork(int $depth): float
+    {
+        if ($depth <= 0) return 0;
+
+        $startTime = microtime(true);
+
+        // Build a deeply nested structure (simulates complex API payloads)
+        $data = [
+            'requestId' => uniqid('req_'),
+            'timestamp' => date('c'),
+            'metadata' => [
+                'version' => '1.0',
+                'source' => 'loadtest',
+                'correlationId' => md5((string)microtime(true)),
+            ],
+            'payload' => self::buildNestedJson($depth),
+        ];
+
+        // Encode to JSON (CPU + memory for string building)
+        $json = json_encode($data, JSON_PRETTY_PRINT);
+
+        // Decode back (CPU + memory for parsing)
+        $decoded = json_decode($json, true);
+
+        // Re-encode with different options (more work)
+        $reencoded = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        // Force use to prevent optimization
+        $len = strlen($reencoded);
+
+        return (microtime(true) - $startTime) * 1000;
+    }
+
+    /**
+     * Builds a nested JSON-compatible array structure.
+     */
+    private static function buildNestedJson(int $depth, int $currentDepth = 0): array
+    {
+        if ($currentDepth >= $depth) {
+            return [
+                'leaf' => true,
+                'value' => md5((string)microtime(true)),
+                'data' => str_repeat('payload_', 10),
+            ];
+        }
+
+        return [
+            'level' => $currentDepth,
+            'items' => array_map(
+                fn($i) => self::buildNestedJson($depth, $currentDepth + 1),
+                range(1, 3)
+            ),
+            'metadata' => [
+                'created' => microtime(true),
+                'hash' => md5((string)$currentDepth),
+            ],
+        ];
+    }
+
+    /**
      * Checks if elapsed time exceeds threshold and randomly throws an exception.
      *
      * @param float $startTime Request start time (microtime)
@@ -375,8 +550,8 @@ class LoadTestService
     private static function buildResult(
         int $elapsedMs,
         int $concurrentRequests,
-        float $degradationDelayMs,
-        float $totalCpuWork,
+        float $targetDurationMs,
+        array $workMetrics,
         int $bufferSizeBytes,
         bool $workCompleted,
         bool $exceptionThrown,
@@ -385,8 +560,12 @@ class LoadTestService
         return [
             'elapsedMs' => $elapsedMs,
             'concurrentRequestsAtStart' => $concurrentRequests,
-            'degradationDelayAppliedMs' => (int) $degradationDelayMs,
-            'cpuWorkCompletedMs' => $workCompleted ? (int) $totalCpuWork : 0,
+            'targetDurationMs' => (int) $targetDurationMs,
+            'workCycles' => $workMetrics['cycles'],
+            'cpuWorkMs' => (int) $workMetrics['cpuWorkMs'],
+            'fileIoMs' => (int) $workMetrics['fileIoMs'],
+            'memoryChurnMs' => (int) $workMetrics['memoryChurnMs'],
+            'jsonWorkMs' => (int) $workMetrics['jsonWorkMs'],
             'memoryAllocatedBytes' => $workCompleted ? $bufferSizeBytes : 0,
             'workCompleted' => $workCompleted,
             'exceptionThrown' => $exceptionThrown,

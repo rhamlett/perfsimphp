@@ -26,6 +26,7 @@ use PerfSimPhp\Config;
 class EventLogService
 {
     private const STORAGE_KEY = 'perfsim_events';
+    private const SEQUENCE_KEY = 'perfsim_events_seq';
 
     /**
      * Log a new event.
@@ -38,8 +39,14 @@ class EventLogService
         ?string $simulationType = null,
         ?array $details = null,
     ): array {
+        // Get next sequence number (monotonically increasing, survives ring buffer eviction)
+        $seq = SharedStorage::modify(self::SEQUENCE_KEY, function (?int $s) {
+            return ($s ?? 0) + 1;
+        }, 0);
+
         $entry = [
             'id' => Utils::generateId(),
+            'seq' => $seq,  // Sequence number for change detection
             'timestamp' => Utils::formatTimestamp(),
             'level' => $level,
             'workerPid' => getmypid(),
@@ -140,6 +147,15 @@ class EventLogService
     public static function getCount(): int
     {
         return count(self::getEntries());
+    }
+
+    /**
+     * Get the current sequence number (monotonically increasing).
+     * This survives ring buffer eviction and is used for change detection.
+     */
+    public static function getSequence(): int
+    {
+        return SharedStorage::get(self::SEQUENCE_KEY, 0);
     }
 
     /**

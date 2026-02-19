@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace PerfSimPhp\Controllers;
 
 use PerfSimPhp\Config;
+use PerfSimPhp\SharedStorage;
 use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\EventLogService;
 use PerfSimPhp\Services\MetricsService;
@@ -90,12 +91,31 @@ class AdminController
         }
 
         $events = EventLogService::getRecentEntries($limit);
+        $total = EventLogService::getCount();
+        $sequence = EventLogService::getSequence(); // Monotonic counter for change detection
+        
+        // Add storage debug info in non-production
+        $debug = null;
+        if (getenv('APP_ENV') !== 'production') {
+            $debug = [
+                'storage' => SharedStorage::getInfo(),
+                'storagePath' => Config::storagePath(),
+                'storageWritable' => is_writable(Config::storagePath()),
+            ];
+        }
 
-        echo json_encode([
+        $response = [
             'events' => $events,
             'count' => count($events),
-            'total' => EventLogService::getCount(),
-        ]);
+            'total' => $total,
+            'sequence' => $sequence,  // Use this for change detection, not 'total'
+        ];
+        
+        if ($debug) {
+            $response['_debug'] = $debug;
+        }
+
+        echo json_encode($response);
     }
 
     /**

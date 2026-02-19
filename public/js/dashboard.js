@@ -72,14 +72,17 @@ function initDashboard() {
     // Polling client may pass single event or array
     // Handle both cases by adding server events to the log
     const events = Array.isArray(eventOrEvents) ? eventOrEvents : [eventOrEvents];
+    console.log('[dashboard] onEventUpdate received:', events.length, 'events');
     for (const e of events) {
       // Skip if we've already seen this event (by ID)
       if (e.id && seenEventIds.has(e.id)) {
+        console.log('[dashboard] Skipping duplicate event:', e.id);
         continue;
       }
       if (e.id) {
         seenEventIds.add(e.id);
       }
+      console.log('[dashboard] Adding event to log:', e.event || e.message);
       addEventToLog({
         id: e.id,
         level: e.level || 'info',

@@ -11,11 +11,16 @@
  * Designed for Azure Load Testing, JMeter, k6, Gatling. Does NOT appear
  * in the dashboard UI — it's meant for automated load testing tools.
  *
+ * WORK TYPES (all create real, observable metrics):
+ *   - CPU Work      : Cryptographic hashing (visible in CPU metrics)
+ *   - File I/O      : Write/read temp files (visible in I/O metrics)
+ *   - Memory Churn  : Allocate/serialize/free (visible in memory metrics)
+ *   - JSON Process  : Deep encode/decode (visible in CPU + memory)
+ *
  * DEGRADATION BEHAVIOR:
- *   Below soft limit:  ~baselineDelayMs response time (default 1000ms)
- *   At soft limit:     Response time starts increasing
- *   Above soft limit:  baselineDelayMs + (concurrent - softLimit) * degradationFactor
- *   Extreme load:      Responses approach 230s Azure App Service frontend timeout
+ *   Below soft limit: ~targetDurationMs response time
+ *   Above soft limit: targetDurationMs * degradationFactor^(concurrent - softLimit)
+ *   This creates exponential backpressure with real work, not artificial delays.
  *
  * @module src/Controllers/LoadTestController.php
  */
@@ -33,25 +38,34 @@ class LoadTestController
      * Executes a load test request with configurable resource consumption.
      *
      * QUERY PARAMETERS (all optional):
-     *   - cpuWorkMs (int)         : Ms of real CPU work per cycle (default: 100)
-     *   - memorySizeKb (int)      : KB of memory to allocate (default: 10000 = 10MB)
-     *   - baselineDelayMs (int)   : Base response time in ms (default: 1000)
-     *   - softLimit (int)         : Concurrent requests before degradation (default: 20)
-     *   - degradationFactor (int) : Ms added per request over softLimit (default: 1000)
+     *   - cpuWorkMs (int)        : Ms of CPU work per cycle (default: 50)
+     *   - memorySizeKb (int)     : KB of persistent memory (default: 5000 = 5MB)
+     *   - fileIoKb (int)         : KB to write/read per cycle (default: 100)
+     *   - jsonDepth (int)        : Nesting depth for JSON work (default: 5)
+     *   - memoryChurnKb (int)    : KB to churn per cycle (default: 500)
+     *   - targetDurationMs (int) : Target request duration (default: 1000)
+     *   - softLimit (int)        : Concurrent before degradation (default: 20)
+     *   - degradationFactor (float): Multiplier per concurrent over limit (default: 1.5)
      *
-     * EXAMPLE:
-     *   GET /api/loadtest?cpuWorkMs=50&memorySizeKb=5000&baselineDelayMs=500
+     * EXAMPLES:
+     *   GET /api/loadtest?cpuWorkMs=100&fileIoKb=200
+     *   GET /api/loadtest?targetDurationMs=2000&softLimit=10
      */
     public static function execute(): void
     {
-        // Parse optional query parameters
+        // Parse optional query parameters (integers)
         $request = [];
-        $optionalParams = ['cpuWorkMs', 'memorySizeKb', 'baselineDelayMs', 'softLimit', 'degradationFactor'];
+        $intParams = ['cpuWorkMs', 'memorySizeKb', 'fileIoKb', 'jsonDepth', 'memoryChurnKb', 'targetDurationMs', 'softLimit'];
 
-        foreach ($optionalParams as $param) {
+        foreach ($intParams as $param) {
             if (isset($_GET[$param]) && is_numeric($_GET[$param])) {
                 $request[$param] = (int) $_GET[$param];
             }
+        }
+
+        // Parse float parameter
+        if (isset($_GET['degradationFactor']) && is_numeric($_GET['degradationFactor'])) {
+            $request['degradationFactor'] = (float) $_GET['degradationFactor'];
         }
 
         try {

@@ -63,6 +63,7 @@ let probePollTimer = null;
 
 // Track last event count to detect new events
 let lastEventCount = 0;
+let lastEventSequence = 0;  // Monotonic sequence for reliable change detection
 
 // Track consecutive failures for connection status
 let consecutiveFailures = 0;
@@ -271,15 +272,17 @@ function startEventsPolling() {
  * Clears the log display for a fresh start, then adds connection events.
  */
 function initializeEventLog() {
+  console.log('[polling-client] Initializing event log...');
   fetchWithTimeout('/api/admin/events?limit=50', { cache: 'no-store' }, EVENTS_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) throw new Error('Events fetch failed');
       return response.json();
     })
     .then(data => {
-      // Initialize lastEventCount to current server count
-      // This marks our "starting point" - we'll only show events after this
+      // Use sequence number for change detection (survives ring buffer eviction)
+      lastEventSequence = data.sequence || 0;
       lastEventCount = data.total || data.count || (data.events || []).length;
+      console.log('[polling-client] Event log initialized, sequence:', lastEventSequence, 'count:', lastEventCount);
       
       // Clear event log state (both JS state and DOM) to start fresh
       if (typeof window.clearEventLog === 'function') {
@@ -293,8 +296,8 @@ function initializeEventLog() {
         addEventToLog({ level: 'success', message: 'Connected to metrics hub' });
       }
     })
-    .catch(() => {
-      // Silent failure for initial event load
+    .catch((error) => {
+      console.error('[polling-client] Event log init failed:', error.message);
     });
 }
 
@@ -310,26 +313,44 @@ function pollEventsOnce() {
     .then(data => {
       onPollSuccess();
       const events = data.events || [];
-      // Use total event count (not response count) to detect new events
+      // Use sequence number for reliable change detection (survives ring buffer eviction)
+      const newSequence = data.sequence || 0;
       const newTotal = data.total || data.count || events.length;
 
-      // Only process if there are new events since we last checked
-      if (newTotal > lastEventCount && lastEventCount > 0) {
+      // Debug logging for event detection
+      if (newSequence !== lastEventSequence) {
+        console.log('[polling-client] Sequence changed:', lastEventSequence, '->', newSequence, 'events:', events.length);
+      }
+
+      // Detect new events using monotonic sequence number
+      if (newSequence > lastEventSequence && lastEventSequence > 0) {
         // Calculate how many new events arrived
-        const newEventsCount = newTotal - lastEventCount;
-        // Events are newest-first from the API, so take the first N
-        const newEvents = events.slice(0, Math.min(newEventsCount, events.length));
+        const newEventsCount = newSequence - lastEventSequence;
+        console.log('[polling-client] New events detected:', newEventsCount);
+        // Events are newest-first from the API, so take the first N (but no more than available)
+        const eventsToShow = events.slice(0, Math.min(newEventsCount, events.length));
+        console.log('[polling-client] Dispatching events:', eventsToShow.map(e => e.event || e.message));
         // Dispatch in chronological order (reverse since API returns newest-first)
-        for (let i = newEvents.length - 1; i >= 0; i--) {
+        for (let i = eventsToShow.length - 1; i >= 0; i--) {
           if (typeof onEventUpdate === 'function') {
-            onEventUpdate(newEvents[i]);
+            onEventUpdate(eventsToShow[i]);
+          }
+        }
+      } else if (newSequence > 0 && lastEventSequence === 0) {
+        // Edge case: first poll after init with no prior events - show recent events
+        console.log('[polling-client] Initial events load, showing recent:', Math.min(5, events.length));
+        const recentEvents = events.slice(0, 5);
+        for (let i = recentEvents.length - 1; i >= 0; i--) {
+          if (typeof onEventUpdate === 'function') {
+            onEventUpdate(recentEvents[i]);
           }
         }
       }
+      lastEventSequence = newSequence;
       lastEventCount = newTotal;
     })
-    .catch(() => {
-      // Silent failure for events polling
+    .catch((error) => {
+      console.warn('[polling-client] Events poll failed:', error.message);
     });
 }
 

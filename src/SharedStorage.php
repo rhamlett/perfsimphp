@@ -184,20 +184,27 @@ class SharedStorage
         }
 
         $data = json_decode($contents, true);
-        if (!is_array($data)) {
+        
+        // Handle null from json_decode failure
+        if ($data === null && $contents !== 'null') {
             return $default;
         }
 
-        // Check for TTL expiration (file-based TTL support)
-        if (isset($data['__ttl_expires_at']) && microtime(true) > $data['__ttl_expires_at']) {
-            // TTL expired - delete file and return default
-            fclose(fopen($file, 'r')); // Release any handles
-            self::fileDelete($key);
-            return $default;
+        // For array data, check if it has TTL metadata
+        if (is_array($data)) {
+            // Check for TTL expiration (file-based TTL support)
+            if (isset($data['__ttl_expires_at']) && microtime(true) > $data['__ttl_expires_at']) {
+                // TTL expired - delete file and return default
+                self::fileDelete($key);
+                return $default;
+            }
+
+            // Return actual value (strip TTL metadata) or the array itself
+            return $data['__value'] ?? $data;
         }
 
-        // Return the actual value (strip TTL metadata)
-        return $data['__value'] ?? $data;
+        // For scalar values (no TTL wrapper), return directly
+        return $data;
     }
 
     private static function fileSet(string $key, mixed $value, int $ttl = 0): void

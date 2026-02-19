@@ -5,9 +5,12 @@ use PerfSimPhp\Services\LoadTestService;
 
 try {
     $result = LoadTestService::executeWork([
+        'cpuWorkMs' => 50,
         'memorySizeKb' => 1000,
-        'cpuWorkMs' => 10,
-        'baselineDelayMs' => 100
+        'fileIoKb' => 50,
+        'jsonDepth' => 3,
+        'memoryChurnKb' => 200,
+        'targetDurationMs' => 500,
     ]);
     print_r($result);
 } catch (Throwable $e) {
