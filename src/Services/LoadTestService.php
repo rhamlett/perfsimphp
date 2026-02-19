@@ -47,6 +47,7 @@ declare(strict_types=1);
 namespace PerfSimPhp\Services;
 
 use PerfSimPhp\SharedStorage;
+use PerfSimPhp\Services\EventLogService;
 
 class LoadTestService
 {
@@ -93,6 +94,23 @@ class LoadTestService
 
         // Increment concurrent counter
         $currentConcurrent = self::incrementConcurrent();
+
+        // Log load test start with concurrency info
+        $overLimit = max(0, $currentConcurrent - $params['softLimit']);
+        $expectedDegradation = $overLimit * $params['degradationFactor'];
+        EventLogService::info(
+            'LOADTEST_START',
+            "Load test request started (concurrent: {$currentConcurrent}, degradation: {$expectedDegradation}ms)",
+            null,
+            'loadtest',
+            [
+                'concurrent' => $currentConcurrent,
+                'softLimit' => $params['softLimit'],
+                'overLimit' => $overLimit,
+                'expectedDegradationMs' => $expectedDegradation,
+                'baselineDelayMs' => $params['baselineDelayMs'],
+            ]
+        );
 
         $startTime = microtime(true);
         $totalCpuWorkDone = 0;
@@ -162,7 +180,17 @@ class LoadTestService
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
             self::incrementStat('totalExceptions');
 
-            error_log("[LoadTest] Exception after {$elapsedMs}ms: " . get_class($e) . " - {$e->getMessage()}");
+            EventLogService::error(
+                'LOADTEST_EXCEPTION',
+                get_class($e) . ": " . $e->getMessage() . " after {$elapsedMs}ms",
+                null,
+                'loadtest',
+                [
+                    'exceptionType' => get_class($e),
+                    'elapsedMs' => $elapsedMs,
+                    'concurrent' => $currentConcurrent,
+                ]
+            );
 
             throw $e;
         } finally {
@@ -172,6 +200,19 @@ class LoadTestService
             // Update stats
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
             self::updateStats($elapsedMs);
+
+            // Log completion
+            EventLogService::info(
+                'LOADTEST_COMPLETE',
+                "Load test completed in {$elapsedMs}ms (concurrent was: {$currentConcurrent})",
+                null,
+                'loadtest',
+                [
+                    'elapsedMs' => $elapsedMs,
+                    'concurrentAtStart' => $currentConcurrent,
+                    'memoryAllocatedKb' => $params['memorySizeKb'],
+                ]
+            );
 
             // Release memory
             $memory = null;

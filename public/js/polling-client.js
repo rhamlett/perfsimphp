@@ -51,6 +51,11 @@ const PROBE_POLL_INTERVAL = 0;
 const INTERNAL_PROBE_COUNT = 10;
 const INTERNAL_PROBE_INTERVAL = 100;
 
+// Timeouts for fetch requests (prevents UI freeze during load testing)
+const METRICS_TIMEOUT_MS = 5000;
+const PROBE_TIMEOUT_MS = 15000;
+const EVENTS_TIMEOUT_MS = 5000;
+
 // Polling timer IDs
 let metricsPollTimer = null;
 let eventsPollTimer = null;
@@ -62,6 +67,22 @@ let lastEventCount = 0;
 // Track consecutive failures for connection status
 let consecutiveFailures = 0;
 const MAX_CONSECUTIVE_FAILURES = 3;
+
+/**
+ * Fetch with timeout using AbortController.
+ * Prevents UI freeze during load testing when workers are saturated.
+ * @param {string} url - URL to fetch
+ * @param {object} options - Fetch options
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise<Response>}
+ */
+function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timeoutId));
+}
 
 /**
  * Initializes the polling client.
@@ -211,7 +232,7 @@ function startMetricsPolling() {
  * Fetches metrics once and dispatches to handlers.
  */
 function pollMetricsOnce() {
-  fetch('/api/metrics', { cache: 'no-store' })
+  fetchWithTimeout('/api/metrics', { cache: 'no-store' }, METRICS_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) throw new Error('Metrics fetch failed');
       return response.json();
@@ -250,7 +271,7 @@ function startEventsPolling() {
  * Clears the log display for a fresh start, then adds connection events.
  */
 function initializeEventLog() {
-  fetch('/api/admin/events?limit=50', { cache: 'no-store' })
+  fetchWithTimeout('/api/admin/events?limit=50', { cache: 'no-store' }, EVENTS_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) throw new Error('Events fetch failed');
       return response.json();
@@ -281,7 +302,7 @@ function initializeEventLog() {
  * Fetches events and dispatches new ones to handlers.
  */
 function pollEventsOnce() {
-  fetch('/api/admin/events?limit=20', { cache: 'no-store' })
+  fetchWithTimeout('/api/admin/events?limit=20', { cache: 'no-store' }, EVENTS_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) throw new Error('Events fetch failed');
       return response.json();
@@ -357,10 +378,10 @@ function probeOnce() {
   });
   const probeUrl = '/api/metrics/internal-probes?' + params.toString();
 
-  fetch(probeUrl, { 
+  fetchWithTimeout(probeUrl, { 
     method: 'GET',
     headers: { 'Accept': 'application/json' },
-  })
+  }, PROBE_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) {
         throw new Error('HTTP ' + response.status);

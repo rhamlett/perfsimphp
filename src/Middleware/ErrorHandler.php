@@ -40,14 +40,20 @@ class ErrorHandler
     public static function handleException(\Throwable $e): void
     {
         $statusCode = 500;
-        // TEMPORARY: Show detailed errors for debugging
-        $errorResponse = [
-            'error' => get_class($e),
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-        ];
+        $isProduction = getenv('APP_ENV') === 'production';
+        
+        // Default: hide details in production
+        $errorResponse = $isProduction
+            ? [
+                'error' => 'Internal Server Error',
+                'message' => 'An unexpected error occurred',
+            ]
+            : [
+                'error' => get_class($e),
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ];
 
         if ($e instanceof AppException) {
             $statusCode = $e->statusCode;
