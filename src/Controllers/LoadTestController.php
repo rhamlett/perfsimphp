@@ -31,13 +31,22 @@ class LoadTestController
     /**
      * GET /api/loadtest
      * Executes a load test request with configurable resource consumption.
-     * All parameters are optional query params with sensible defaults.
+     *
+     * QUERY PARAMETERS (all optional):
+     *   - cpuWorkMs (int)         : Ms of real CPU work per cycle (default: 100)
+     *   - memorySizeKb (int)      : KB of memory to allocate (default: 10000 = 10MB)
+     *   - baselineDelayMs (int)   : Base response time in ms (default: 1000)
+     *   - softLimit (int)         : Concurrent requests before degradation (default: 20)
+     *   - degradationFactor (int) : Ms added per request over softLimit (default: 1000)
+     *
+     * EXAMPLE:
+     *   GET /api/loadtest?cpuWorkMs=50&memorySizeKb=5000&baselineDelayMs=500
      */
     public static function execute(): void
     {
         // Parse optional query parameters
         $request = [];
-        $optionalParams = ['workIterations', 'bufferSizeKb', 'baselineDelayMs', 'softLimit', 'degradationFactor'];
+        $optionalParams = ['cpuWorkMs', 'memorySizeKb', 'baselineDelayMs', 'softLimit', 'degradationFactor'];
 
         foreach ($optionalParams as $param) {
             if (isset($_GET[$param]) && is_numeric($_GET[$param])) {

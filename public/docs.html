@@ -476,19 +476,19 @@ POST /api/simulations/memory/release</code></pre>
 https://perfsimphp.azurewebsites.net/api/loadtest
 
 # Custom parameters
-https://perfsimphp.azurewebsites.net/api/loadtest?workIterations=500&amp;bufferSizeKb=10000
+https://perfsimphp.azurewebsites.net/api/loadtest?cpuWorkMs=200&amp;memorySizeKb=20000
 
 # Memory only (no CPU work)
-https://perfsimphp.azurewebsites.net/api/loadtest?workIterations=0&amp;bufferSizeKb=100</code></pre>
+https://perfsimphp.azurewebsites.net/api/loadtest?cpuWorkMs=0&amp;memorySizeKb=100</code></pre>
 
       <h3>Query Parameters</h3>
       <table>
         <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
-        <tr><td><code>workIterations</code></td><td>200</td><td>CPU spin iterations per work cycle (hash_pbkdf2 rounds)</td></tr>
-        <tr><td><code>bufferSizeKb</code></td><td>20000</td><td>Memory buffer held for entire request duration (KB)</td></tr>
-        <tr><td><code>baselineDelayMs</code></td><td>500</td><td>Minimum request duration (ms)</td></tr>
-        <tr><td><code>softLimit</code></td><td>25</td><td>Concurrent requests before degradation begins</td></tr>
-        <tr><td><code>degradationFactor</code></td><td>500</td><td>Delay ms added per request over soft limit</td></tr>
+        <tr><td><code>cpuWorkMs</code></td><td>100</td><td>Milliseconds of real CPU work per cycle (uses hash_pbkdf2)</td></tr>
+        <tr><td><code>memorySizeKb</code></td><td>10000</td><td>Memory buffer held for entire request duration (KB) - increase to stress/crash</td></tr>
+        <tr><td><code>baselineDelayMs</code></td><td>1000</td><td>Minimum request duration (ms)</td></tr>
+        <tr><td><code>softLimit</code></td><td>20</td><td>Concurrent requests before degradation begins</td></tr>
+        <tr><td><code>degradationFactor</code></td><td>1000</td><td>Delay ms added per request over soft limit</td></tr>
       </table>
 
       <h3>Behavior (Sustained Resource Consumption)</h3>

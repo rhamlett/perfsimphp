@@ -10,13 +10,20 @@
  *   that degrades gracefully under increasing concurrency, eventually leading
  *   to the 230-second Azure App Service frontend timeout.
  *
+ * QUERY PARAMETERS:
+ *   - cpuWorkMs (default: 100)         — Milliseconds of real CPU work per cycle
+ *   - memorySizeKb (default: 10000)    — KB of memory to allocate (10MB default)
+ *   - baselineDelayMs (default: 1000)  — Base response time before degradation
+ *   - softLimit (default: 20)          — Concurrent requests before degradation starts
+ *   - degradationFactor (default: 1000)— Ms added per concurrent request over softLimit
+ *
  * ALGORITHM (per request):
  *   1. INCREMENT concurrent request counter (via SharedStorage — atomic modify)
- *   2. ALLOCATE MEMORY: PHP arrays to consume managed memory
+ *   2. ALLOCATE MEMORY: PHP string buffer to consume process memory
  *   3. CALCULATE TOTAL DELAY:
  *      totalDelay = baselineDelayMs + max(0, concurrent - softLimit) * degradationFactor
  *      Example with defaults: 30 concurrent = 1000 + (30-20)*1000 = 11000ms
- *   4. SUSTAINED WORK LOOP: interleave CPU work and usleep() yields
+ *   4. SUSTAINED WORK LOOP: interleave real CPU work (hash_pbkdf2) and usleep()
  *   5. RANDOM EXCEPTIONS: After 120s elapsed, 20% chance per cycle
  *   6. DECREMENT counter; return timing diagnostics
  *
@@ -24,12 +31,12 @@
  *   - Concurrent counter uses SharedStorage (APCu/file) because each PHP
  *     request is a separate process — no shared memory by default.
  *   - Memory allocation is within the current request (process memory),
- *     not split between heap/native as in Node.js.
+ *     released when request completes (unlike Node.js persistent heap).
  *   - usleep() is used instead of async sleep (PHP is synchronous).
- *   - No Buffer.alloc() equivalent; PHP strings serve the same purpose.
+ *   - CPU work uses hash_pbkdf2() for measurable CPU load in metrics.
  *
  * EXCEPTION POOL:
- *   17 different exception types simulating real-world PHP failures.
+ *   15 different exception types simulating real-world PHP failures.
  *   These produce diverse error signatures in Application Insights.
  *
  * @module src/Services/LoadTestService.php
@@ -57,11 +64,11 @@ class LoadTestService
 
     /** Default request parameters */
     private const DEFAULTS = [
-        'workIterations' => 700,
-        'bufferSizeKb' => 100000,
-        'baselineDelayMs' => 1000,
-        'softLimit' => 20,
-        'degradationFactor' => 1000,
+        'cpuWorkMs' => 100,          // Ms of real CPU work per cycle (hash_pbkdf2)
+        'memorySizeKb' => 10000,     // 10MB per request (increase to stress memory)
+        'baselineDelayMs' => 1000,   // Base response time before degradation
+        'softLimit' => 20,           // Concurrent requests before degradation
+        'degradationFactor' => 1000, // Ms added per request over softLimit
     ];
 
     /**
@@ -90,17 +97,18 @@ class LoadTestService
         $startTime = microtime(true);
         $totalCpuWorkDone = 0;
         $workCompleted = false;
-        $allocatedBytes = $params['bufferSizeKb'] * 1024;
+        $allocatedBytes = $params['memorySizeKb'] * 1024;
         $memory = null;
 
         try {
             // -----------------------------------------------------------------
             // STEP 1: ALLOCATE MEMORY
             //
-            // In PHP, we allocate arrays on the current process heap.
+            // Allocate a string buffer on the PHP process heap.
             // This is visible in memory_get_usage() and Azure metrics.
+            // Memory is released when this request completes.
             // -----------------------------------------------------------------
-            $memory = self::allocateMemory($params['bufferSizeKb']);
+            $memory = self::allocateMemory($params['memorySizeKb']);
 
             // -----------------------------------------------------------------
             // STEP 2: CALCULATE TOTAL REQUEST DURATION
@@ -112,15 +120,15 @@ class LoadTestService
 
             // -----------------------------------------------------------------
             // STEP 3: SUSTAINED WORK LOOP
-            // Interleave CPU work and brief sleeps until total duration reached.
+            // Interleave real CPU work (hash_pbkdf2) and usleep() until done.
             // -----------------------------------------------------------------
-            $cpuWorkMsPerCycle = $params['workIterations'] / 10;
+            $cpuWorkMsPerCycle = $params['cpuWorkMs'];
 
             while ((microtime(true) - $startTime) * 1000 < $totalDurationMs) {
-                // CPU work phase
+                // CPU work phase - uses hash_pbkdf2 for real measurable CPU load
                 if ($cpuWorkMsPerCycle > 0) {
-                    self::performCpuWork($cpuWorkMsPerCycle);
-                    $totalCpuWorkDone += $cpuWorkMsPerCycle;
+                    $actualWorkMs = self::performCpuWork($cpuWorkMsPerCycle);
+                    $totalCpuWorkDone += $actualWorkMs;
                 }
 
                 // Touch memory to prevent optimization
@@ -205,56 +213,61 @@ class LoadTestService
     // =========================================================================
 
     /**
-     * Allocates memory using PHP arrays.
+     * Allocates memory using a PHP string buffer.
      *
-     * Creates arrays of random values that occupy approximately the
-     * requested amount of memory on the PHP heap.
+     * Uses str_repeat() to create a string of the requested size.
+     * This is more memory-efficient than nested arrays and provides
+     * predictable memory consumption.
      *
      * @param int $sizeKb Amount of memory to allocate in KB
-     * @return array The allocated memory array
+     * @return string The allocated memory buffer
      */
-    private static function allocateMemory(int $sizeKb): array
+    private static function allocateMemory(int $sizeKb): string
     {
-        $memory = [];
-        // Each entry is approximately 1KB (128 doubles × 8 bytes)
-        for ($i = 0; $i < $sizeKb; $i++) {
-            $chunk = [];
-            for ($j = 0; $j < 128; $j++) {
-                $chunk[] = mt_rand() / mt_getrandmax();
-            }
-            $memory[] = $chunk;
-        }
-        return $memory;
+        // Create a 1KB block and repeat it
+        // Using random bytes makes it harder for PHP to optimize away
+        $block = random_bytes(1024);
+        return str_repeat($block, $sizeKb);
     }
 
     /**
      * Touches memory to prevent optimization/GC.
      *
-     * @param array &$memory The memory array to touch
+     * @param string &$memory The memory buffer to touch
      */
-    private static function touchMemory(array &$memory): void
+    private static function touchMemory(string &$memory): void
     {
-        // Touch every 4th chunk
-        $len = count($memory);
-        for ($i = 0; $i < $len; $i += 4) {
-            if (isset($memory[$i][0])) {
-                $memory[$i][0] += 0.001;
-            }
+        // Read a character from random positions to prevent optimization
+        $len = strlen($memory);
+        if ($len > 0) {
+            $pos = mt_rand(0, $len - 1);
+            $_ = ord($memory[$pos]);
         }
     }
 
     /**
-     * Performs CPU-intensive work for the specified duration.
+     * Performs real CPU-intensive work using hash_pbkdf2.
      *
-     * @param float $workMs Milliseconds of CPU work
+     * Uses the same approach as cpu-worker.php for consistency.
+     * Each hash_pbkdf2 call with 1000 iterations takes ~1-2ms.
+     *
+     * @param float $workMs Target milliseconds of CPU work
+     * @return float Actual milliseconds of CPU work performed
      */
-    private static function performCpuWork(float $workMs): void
+    private static function performCpuWork(float $workMs): float
     {
-        if ($workMs <= 0) return;
-        $endTime = microtime(true) + ($workMs / 1000);
+        if ($workMs <= 0) return 0;
+        
+        $startTime = microtime(true);
+        $endTime = $startTime + ($workMs / 1000);
+        
+        // Each hash_pbkdf2 call does real cryptographic work
+        // This produces measurable CPU load in monitoring tools
         while (microtime(true) < $endTime) {
-            // Spin loop — Date.now() equivalent prevents optimization
+            hash_pbkdf2('sha256', 'loadtest', 'salt', 1000, 32, false);
         }
+        
+        return (microtime(true) - $startTime) * 1000;
     }
 
     /**
@@ -330,7 +343,7 @@ class LoadTestService
             'elapsedMs' => $elapsedMs,
             'concurrentRequestsAtStart' => $concurrentRequests,
             'degradationDelayAppliedMs' => (int) $degradationDelayMs,
-            'workIterationsCompleted' => $workCompleted ? (int) $totalCpuWork : 0,
+            'cpuWorkCompletedMs' => $workCompleted ? (int) $totalCpuWork : 0,
             'memoryAllocatedBytes' => $workCompleted ? $bufferSizeBytes : 0,
             'workCompleted' => $workCompleted,
             'exceptionThrown' => $exceptionThrown,
