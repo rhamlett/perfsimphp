@@ -135,7 +135,14 @@ function updateDashboard(metrics) {
   // Memory value
   const memoryValue = document.getElementById('memory-value');
   if (memoryValue) {
-    memoryValue.textContent = (metrics.memory?.usedMb || 0).toFixed(0) + ' MB';
+    memoryValue.textContent = (metrics.memory?.usedMb || 0).toFixed(0);
+  }
+
+  // Memory total (system RAM)
+  const memoryTotal = document.getElementById('memory-total');
+  if (memoryTotal && metrics.memory?.totalSystemMb) {
+    const totalGb = (metrics.memory.totalSystemMb / 1024).toFixed(1);
+    memoryTotal.textContent = `of ${totalGb} GB`;
   }
 
   // Worker/Eventloop value (PHP: active workers)
