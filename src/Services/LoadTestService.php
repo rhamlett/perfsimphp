@@ -374,28 +374,40 @@ class LoadTestService
 
     private static function incrementStat(string $stat): void
     {
-        SharedStorage::modify(self::STATS_KEY, function (?array $stats) use ($stat) {
-            $stats = $stats ?? [
-                'totalRequestsProcessed' => 0,
-                'totalExceptionsThrown' => 0,
-                'totalResponseTimeMs' => 0,
-            ];
+        $defaultStats = [
+            'totalRequestsProcessed' => 0,
+            'totalExceptionsThrown' => 0,
+            'totalResponseTimeMs' => 0,
+        ];
+        SharedStorage::modify(self::STATS_KEY, function ($stats) use ($stat, $defaultStats) {
+            // Handle null, empty array, or non-array values
+            if (!is_array($stats) || empty($stats)) {
+                $stats = $defaultStats;
+            } else {
+                $stats = array_merge($defaultStats, $stats);
+            }
             $stats[$stat] = ($stats[$stat] ?? 0) + 1;
             return $stats;
-        }, []);
+        }, $defaultStats);
     }
 
     private static function updateStats(int $elapsedMs): void
     {
-        SharedStorage::modify(self::STATS_KEY, function (?array $stats) use ($elapsedMs) {
-            $stats = $stats ?? [
-                'totalRequestsProcessed' => 0,
-                'totalExceptionsThrown' => 0,
-                'totalResponseTimeMs' => 0,
-            ];
+        $defaultStats = [
+            'totalRequestsProcessed' => 0,
+            'totalExceptionsThrown' => 0,
+            'totalResponseTimeMs' => 0,
+        ];
+        SharedStorage::modify(self::STATS_KEY, function ($stats) use ($elapsedMs, $defaultStats) {
+            // Handle null, empty array, or non-array values
+            if (!is_array($stats) || empty($stats)) {
+                $stats = $defaultStats;
+            } else {
+                $stats = array_merge($defaultStats, $stats);
+            }
             $stats['totalRequestsProcessed']++;
             $stats['totalResponseTimeMs'] += $elapsedMs;
             return $stats;
-        }, []);
+        }, $defaultStats);
     }
 }
