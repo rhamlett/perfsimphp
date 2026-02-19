@@ -546,17 +546,18 @@ async function releaseMemory() {
 /**
  * Blocks PHP-FPM worker threads.
  * Unlike Node.js event loop blocking, PHP blocking only affects individual
- * FPM worker processes. Blocks 5 workers by default to create visible impact.
+ * FPM worker processes.
  *
  * @param {number} durationSeconds - How long to block (1-60)
+ * @param {number} concurrentWorkers - Number of workers to block (1-20, default: 5)
  */
-async function blockRequestThread(durationSeconds) {
+async function blockRequestThread(durationSeconds, concurrentWorkers = 5) {
   try {
-    addEventToLog({ level: 'info', message: `Blocking FPM workers for ${durationSeconds}s...` });
+    addEventToLog({ level: 'info', message: `Blocking ${concurrentWorkers} FPM workers for ${durationSeconds}s...` });
     const response = await fetch('/api/simulations/blocking/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ durationSeconds }),
+      body: JSON.stringify({ durationSeconds, concurrentWorkers }),
     });
     const data = await response.json();
     if (response.ok) {
@@ -934,7 +935,8 @@ document.addEventListener('DOMContentLoaded', () => {
     blockingForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const duration = parseInt(document.getElementById('blocking-duration')?.value || '5', 10);
-      blockRequestThread(duration);
+      const workerCount = parseInt(document.getElementById('blocking-worker-count')?.value || '5', 10);
+      blockRequestThread(duration, workerCount);
     });
   }
 
