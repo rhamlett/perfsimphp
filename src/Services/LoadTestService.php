@@ -38,8 +38,8 @@ class LoadTestService
     private const STATS_KEY = 'perfsim_loadtest_stats';
     private const CONCURRENT_KEY = 'perfsim_loadtest_concurrent';
 
-    /** Time threshold in seconds after which exceptions may be thrown */
-    private const EXCEPTION_THRESHOLD_SECONDS = 120;
+    /** Time threshold in seconds after which exceptions may be thrown (must be < MAX_DURATION_MS/1000) */
+    private const EXCEPTION_THRESHOLD_SECONDS = 45;
 
     /** Probability of throwing exception per check after threshold */
     private const EXCEPTION_PROBABILITY = 0.20;
@@ -176,7 +176,22 @@ class LoadTestService
                 // Touch persistent memory to prevent optimization
                 self::touchMemory($memory);
 
-                // Check for timeout exception (20% chance after 120s)
+                // HARD FAIL-SAFE: Force exit if elapsed time exceeds absolute max
+                // This catches cases where individual work operations take too long
+                // under heavy system load (prevents 240s Azure timeout)
+                $currentElapsedMs = (microtime(true) - $startTime) * 1000;
+                if ($currentElapsedMs > self::MAX_DURATION_MS) {
+                    EventLogService::warn(
+                        'LOADTEST_FAILSAFE',
+                        "Force exit: elapsed {$currentElapsedMs}ms exceeds " . self::MAX_DURATION_MS . "ms max",
+                        null,
+                        'loadtest',
+                        ['elapsedMs' => round($currentElapsedMs), 'maxMs' => self::MAX_DURATION_MS]
+                    );
+                    break;
+                }
+
+                // Check for timeout exception (20% chance after threshold)
                 self::checkAndThrowException($startTime);
             }
 
