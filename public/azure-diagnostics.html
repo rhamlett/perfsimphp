@@ -329,7 +329,7 @@
           <h4>⏱️ Request Latency (ms)</h4>
           <p><strong>What it measures:</strong> Time from request received to response sent, including time waiting in the FPM queue for an available worker.</p>
           <p><strong>Why it matters:</strong> Direct measure of user experience. High latency with low CPU often indicates blocking operations or external dependency issues.</p>
-          <p><strong>Normal range:</strong> &lt;150ms for simple requests</p>
+          <p><strong>Normal range:</strong> &lt;200ms for simple requests</p>
           <p><strong>Warning signs:</strong> >1s degraded; >30s critical (may hit PHP max_execution_time).</p>
         </div>
       </div>

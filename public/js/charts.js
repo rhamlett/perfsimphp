@@ -16,8 +16,8 @@
  *
  * LATENCY CHART FEATURES:
  *   - Color-coded gradient fill based on latency severity:
- *     * Green (0-150ms): Healthy response times
- *     * Yellow (150ms-1s): Degraded performance
+ *     * Green (0-200ms): Healthy response times
+ *     * Yellow (200ms-1s): Degraded performance
  *     * Orange (1s-30s): Severe degradation
  *     * Red (30s+): Critical / near-timeout
  *   - Smooth color interpolation between thresholds (not hard bands)
@@ -162,7 +162,7 @@ function getLatencyValuesLast60s() {
 // Latency threshold colors for gradient fill
 const LATENCY_COLORS = {
   good: { value: 0, color: 'rgba(16, 124, 16' },
-  degraded: { value: 150, color: 'rgba(255, 185, 0' },
+  degraded: { value: 200, color: 'rgba(255, 185, 0' },
   severe: { value: 1000, color: 'rgba(255, 140, 0' },
   critical: { value: 30000, color: 'rgba(209, 52, 56' }
 };
@@ -191,11 +191,11 @@ function lerpColor(color1, color2, t) {
  */
 function getInterpolatedLatencyColor(latencyMs) {
   if (latencyMs <= 0) return lerpColor(LATENCY_RGB.good, LATENCY_RGB.good, 0);
-  if (latencyMs <= 150) {
-    return lerpColor(LATENCY_RGB.good, LATENCY_RGB.degraded, latencyMs / 150);
+  if (latencyMs <= 200) {
+    return lerpColor(LATENCY_RGB.good, LATENCY_RGB.degraded, latencyMs / 200);
   }
   if (latencyMs <= 1000) {
-    return lerpColor(LATENCY_RGB.degraded, LATENCY_RGB.severe, (latencyMs - 150) / 850);
+    return lerpColor(LATENCY_RGB.degraded, LATENCY_RGB.severe, (latencyMs - 200) / 800);
   }
   if (latencyMs <= 30000) {
     return lerpColor(LATENCY_RGB.severe, LATENCY_RGB.critical, (latencyMs - 1000) / 29000);
@@ -210,13 +210,13 @@ function getInterpolatedLatencyColorRGBA(latencyMs, alpha) {
   let r, g, b;
   if (latencyMs <= 0) {
     r = LATENCY_RGB.good.r; g = LATENCY_RGB.good.g; b = LATENCY_RGB.good.b;
-  } else if (latencyMs <= 150) {
-    const t = latencyMs / 150;
+  } else if (latencyMs <= 200) {
+    const t = latencyMs / 200;
     r = Math.round(LATENCY_RGB.good.r + (LATENCY_RGB.degraded.r - LATENCY_RGB.good.r) * t);
     g = Math.round(LATENCY_RGB.good.g + (LATENCY_RGB.degraded.g - LATENCY_RGB.good.g) * t);
     b = Math.round(LATENCY_RGB.good.b + (LATENCY_RGB.degraded.b - LATENCY_RGB.good.b) * t);
   } else if (latencyMs <= 1000) {
-    const t = (latencyMs - 150) / 850;
+    const t = (latencyMs - 200) / 800;
     r = Math.round(LATENCY_RGB.degraded.r + (LATENCY_RGB.severe.r - LATENCY_RGB.degraded.r) * t);
     g = Math.round(LATENCY_RGB.degraded.g + (LATENCY_RGB.severe.g - LATENCY_RGB.degraded.g) * t);
     b = Math.round(LATENCY_RGB.degraded.b + (LATENCY_RGB.severe.b - LATENCY_RGB.degraded.b) * t);
@@ -393,7 +393,7 @@ function updateProbeVisualization() {
       className += ' failed';
     } else if (probe.latency > 1000) {
       className += ' slow';
-    } else if (probe.latency > 150) {
+    } else if (probe.latency > 200) {
       className += ' degraded';
     }
     return `<span class="${className}"></span>`;

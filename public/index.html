@@ -150,7 +150,7 @@
       <!-- Request Latency Monitor -->
       <section id="latency-section">
         <div class="latency-card">
-          <h3>⏱️ Request Latency Monitor <span id="probe-visualization" class="probe-visualization-inline" title="Probe history: Green=good (<150ms), Yellow=degraded (150ms-1s), Orange=slow (>1s), Red=failed/timeout"></span></h3>
+          <h3>⏱️ Request Latency Monitor <span id="probe-visualization" class="probe-visualization-inline" title="Probe history: Green=good (<200ms), Yellow=degraded (200ms-1s), Orange=slow (>1s), Red=failed/timeout"></span></h3>
           <!-- PORTING NOTE: Update latency description for target runtime's probe mechanism -->
           <p class="latency-description">Measures actual response time via browser XHR probes to a lightweight endpoint. Times include PHP-FPM worker acquisition, processing, and network latency.</p>
           
@@ -174,8 +174,8 @@
           </div>
           <div class="thresholds">
             <span class="threshold-label">Thresholds:</span>
-            <span class="threshold good">● Good (&lt;150ms)</span>
-            <span class="threshold degraded">● Degraded (150ms-1s)</span>
+            <span class="threshold good">● Good (&lt;200ms)</span>
+            <span class="threshold degraded">● Degraded (200ms-1s)</span>
             <span class="threshold severe">● Severe (&gt;1s)</span>
             <span class="threshold critical">● Critical (&gt;30s)</span>
           </div>
