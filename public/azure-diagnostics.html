@@ -851,16 +851,15 @@ script_filename = /home/site/wwwroot/public/index.php
     <!-- ================================================================== -->
     <section id="load-testing" class="card">
       <h2>&#x1f52c; Azure Load Testing</h2>
-      <p>The Performance Problem Simulator includes a dedicated load testing endpoint designed for use with Azure Load Testing. This endpoint simulates realistic application behavior that degrades gracefully under load.</p>
+      <p>The Performance Problem Simulator includes a dedicated load testing endpoint designed for use with Azure Load Testing. This endpoint creates real CPU and memory pressure with simple, predictable behavior.</p>
 
       <h3>Load Test Endpoint</h3>
       <p>The <code>/api/loadtest</code> endpoint is designed to:</p>
       <ul>
-        <li>Perform real CPU work (hash_pbkdf2, file I/O, memory churn, JSON processing)</li>
-        <li>Hold memory buffers for entire request duration (creates visible memory pressure)</li>
-        <li>Degrade exponentially as concurrent requests increase (soft limit pattern)</li>
-        <li>Throw random exceptions after 120 seconds (20% probability)</li>
-        <li>Built-in safeguards: max 60s duration, max 30x degradation multiplier</li>
+        <li>Perform real CPU work using cryptographic hashing (hash_pbkdf2)</li>
+        <li>Allocate real memory buffers held for the entire request duration</li>
+        <li>Keep requests short (max 5 seconds) to prevent FPM pool exhaustion</li>
+        <li>Log statistics every 60 seconds (request count, avg/max latency, RPS)</li>
       </ul>
 
       <h3>Setting Up Azure Load Testing</h3>
@@ -871,24 +870,21 @@ script_filename = /home/site/wwwroot/public/index.php
 
       <h4>GET with Query Parameters</h4>
       <p>Use the target URL directly &mdash; no JMeter script required:</p>
-      <pre><code># With defaults
+      <pre><code># With defaults (100ms work, 5MB memory)
 https://your-app.azurewebsites.net/api/loadtest
 
-# All parameters (defaults shown)
-https://your-app.azurewebsites.net/api/loadtest?targetDurationMs=1000&amp;memorySizeKb=5000&amp;cpuWorkMs=20&amp;softLimit=20&amp;degradationFactor=1.2
+# Custom parameters
+https://your-app.azurewebsites.net/api/loadtest?workMs=500&amp;memoryKb=10000
 
-# CPU intensive scenario
-https://your-app.azurewebsites.net/api/loadtest?targetDurationMs=500&amp;cpuWorkMs=100&amp;memorySizeKb=2000
+# CPU intensive (longer work, less memory)
+https://your-app.azurewebsites.net/api/loadtest?workMs=2000&amp;memoryKb=2000
 
-# Memory pressure scenario
-https://your-app.azurewebsites.net/api/loadtest?targetDurationMs=1000&amp;memorySizeKb=50000&amp;cpuWorkMs=5</code></pre>
+# Memory pressure (shorter work, more memory)
+https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</code></pre>
       <p><strong>Query Parameters:</strong></p>
       <ul>
-        <li><code>targetDurationMs</code> - Target request duration in ms (default: 1000, alias: baselineDelayMs)</li>
-        <li><code>memorySizeKb</code> - Memory buffer held for request duration in KB (default: 5000 = 5MB)</li>
-        <li><code>cpuWorkMs</code> - Milliseconds of real CPU work per cycle using hash_pbkdf2 (default: 20)</li>
-        <li><code>softLimit</code> - Concurrent requests before degradation (default: 20)</li>
-        <li><code>degradationFactor</code> - Multiplier per concurrent request over limit (default: 1.2)</li>
+        <li><code>workMs</code> - Duration of CPU work in milliseconds (default: 100, max: 5000)</li>
+        <li><code>memoryKb</code> - Memory buffer size in kilobytes held during work (default: 5000 = 5MB, max: 50000 = 50MB)</li>
       </ul>
 
       <ol start="3">
@@ -896,12 +892,16 @@ https://your-app.azurewebsites.net/api/loadtest?targetDurationMs=1000&amp;memory
         <li>Set up Azure Monitor integration to correlate metrics</li>
       </ol>
 
-      <h3>Understanding the Soft Limit</h3>
-      <p>The soft limit creates an exponential degradation curve where response times increase as concurrent requests exceed the threshold. The degradation formula is:</p>
-      <pre><code>duration = targetDurationMs × min(degradationFactor^overLimit, 30)
-# Capped at MAX_DURATION_MS = 60 seconds</code></pre>
+      <h3>How It Works</h3>
+      <p>Each request performs the following steps:</p>
+      <ol>
+        <li><strong>Allocate memory</strong> - Creates a buffer of <code>memoryKb</code> kilobytes with unique content (prevents PHP copy-on-write optimization)</li>
+        <li><strong>CPU work</strong> - Performs cryptographic hashing (hash_pbkdf2) for <code>workMs</code> milliseconds</li>
+        <li><strong>Touch memory</strong> - Accesses the buffer to prevent compiler optimization</li>
+        <li><strong>Return</strong> - Reports actual work performed in the response</li>
+      </ol>
       <div class="alert-box info">
-        <strong>Safeguards:</strong> The maximum duration is capped at 60 seconds, and the maximum degradation multiplier is capped at 30x, preventing runaway scenarios regardless of parameter values.
+        <strong>Memory Visibility Tip:</strong> To see memory usage in the dashboard, use <code>workMs=1000</code> or higher. With the default 100ms work time, the memory allocation may complete between dashboard polling intervals (250ms).
       </div>
 
       <h3>Diagnosing Load Test Results</h3>
@@ -910,52 +910,58 @@ https://your-app.azurewebsites.net/api/loadtest?targetDurationMs=1000&amp;memory
         <li>Go to <strong>Application Insights</strong> &gt; <strong>Performance</strong></li>
         <li>Filter by operation name <code>GET /api/loadtest</code></li>
         <li>Observe response time percentiles (p50, p95, p99)</li>
-        <li>Check failure rates for the 120s+ exception threshold</li>
+        <li>Check CPU and memory metrics correlation</li>
       </ul>
 
       <h4>2. Azure Monitor Metrics</h4>
       <ul>
         <li><strong>Requests</strong> - Total request count and rate</li>
         <li><strong>Response Time</strong> - Average and percentile latencies</li>
-        <li><strong>Http Server Errors</strong> - 5xx errors from random exceptions</li>
-        <li><strong>CPU Percentage</strong> - Should increase with load</li>
+        <li><strong>CPU Percentage</strong> - Should increase with higher workMs values</li>
+        <li><strong>Memory Working Set</strong> - Should increase with higher memoryKb values and concurrent requests</li>
       </ul>
 
-      <h4>3. Load Testing Statistics</h4>
-      <p>Query the stats endpoint during the test:</p>
-      <pre><code>GET /api/loadtest/stats
-
-{
-  "currentConcurrentRequests": 127,
-  "totalRequestsProcessed": 45230,
-  "totalExceptionsThrown": 23,
-  "averageResponseTimeMs": 847.5
-}</code></pre>
+      <h4>3. Event Log Statistics</h4>
+      <p>Every 60 seconds during load testing, statistics are logged to the event log:</p>
+      <pre><code>📊 Load Test (60s): 1523 requests, 105ms avg, 287ms max, 25.4 RPS</code></pre>
+      <p>View these in the dashboard's Event Log panel during testing.</p>
 
       <h3>Request Parameters Reference</h3>
-      <p>Each parameter controls a specific resource independently:</p>
+      <p>The endpoint uses only two parameters for simplicity:</p>
       <table class="comparison-table">
-        <tr><th>Parameter</th><th>Default</th><th>Resource</th><th>Purpose</th></tr>
-        <tr><td><code>targetDurationMs</code></td><td>1000</td><td><strong>FPM Worker</strong></td><td>Target request duration (ms). Real work performed until duration reached. Alias: baselineDelayMs.</td></tr>
-        <tr><td><code>memorySizeKb</code></td><td>5000</td><td><strong>Memory</strong></td><td>Memory buffer held for entire request duration. Increase to trigger OOM errors.</td></tr>
-        <tr><td><code>cpuWorkMs</code></td><td>20</td><td><strong>CPU</strong></td><td>Milliseconds of real CPU work per cycle using hash_pbkdf2(). Higher = more CPU per cycle.</td></tr>
-        <tr><td><code>softLimit</code></td><td>20</td><td><strong>Concurrency</strong></td><td>Concurrent requests before degradation. Lower = faster degradation.</td></tr>
-        <tr><td><code>degradationFactor</code></td><td>1.2</td><td><strong>Concurrency</strong></td><td>Multiplier per concurrent request over softLimit. Duration grows exponentially.</td></tr>
+        <tr><th>Parameter</th><th>Default</th><th>Max</th><th>Purpose</th></tr>
+        <tr><td><code>workMs</code></td><td>100</td><td>5000</td><td>Duration of CPU work (ms). Controls how long each FPM worker is occupied.</td></tr>
+        <tr><td><code>memoryKb</code></td><td>5000</td><td>50000</td><td>Memory buffer size (KB). Held during CPU work, then released.</td></tr>
       </table>
+      <div class="alert-box info">
+        <strong>Legacy Support:</strong> The old parameters <code>targetDurationMs</code> and <code>memorySizeKb</code> are still accepted for backward compatibility and map to <code>workMs</code> and <code>memoryKb</code> respectively.
+      </div>
 
       <h3>Tuning Parameters for Different Scenarios</h3>
-      <p>Complete request parameter examples for various test scenarios:</p>
+      <p>Example configurations for various test scenarios:</p>
       <div class="alert-box info">
-        <strong>Note:</strong> Actual response times will vary based on your Azure App Service tier, PHP-FPM pool size (pm.max_children), and other factors. Use Azure Load Testing to establish baseline performance for your specific environment. These example scenarios, and the defaults, are for a Premium0V3 worker. Any other SKU or worker size will need individual tuning.
+        <strong>Note:</strong> Actual behavior depends on your Azure App Service tier, PHP-FPM pool configuration (pm.max_children), and available memory. Start with defaults and adjust based on observed metrics.
       </div>
       <table class="comparison-table">
-        <tr><th>Scenario</th><th>targetDurationMs</th><th>memorySizeKb</th><th>cpuWorkMs</th><th>softLimit</th><th>degradationFactor</th><th>Primary Stress</th></tr>
-        <tr><td>Worker pool only</td><td>2000</td><td>1000</td><td>5</td><td>5</td><td>1.5</td><td>FPM pool exhaustion, minimal CPU</td></tr>
-        <tr><td>CPU intensive</td><td>500</td><td>2000</td><td>100</td><td>50</td><td>1.1</td><td>High CPU, minimal blocking</td></tr>
-        <tr><td>Memory pressure</td><td>1000</td><td>50000</td><td>5</td><td>20</td><td>1.2</td><td>High memory allocation (50MB/request)</td></tr>
-        <tr><td>Balanced (default)</td><td>1000</td><td>5000</td><td>20</td><td>20</td><td>1.2</td><td>Balanced resource consumption</td></tr>
-        <tr><td>High concurrency</td><td>500</td><td>2000</td><td>10</td><td>100</td><td>1.05</td><td>Gradual degradation under high load</td></tr>
+        <tr><th>Scenario</th><th>workMs</th><th>memoryKb</th><th>Primary Stress</th></tr>
+        <tr><td>Quick baseline</td><td>100</td><td>5000</td><td>Fast requests, moderate memory (default)</td></tr>
+        <tr><td>CPU intensive</td><td>2000</td><td>2000</td><td>2 seconds of CPU work per request</td></tr>
+        <tr><td>Memory pressure</td><td>1000</td><td>50000</td><td>50MB allocation held for 1 second</td></tr>
+        <tr><td>Worker exhaustion</td><td>5000</td><td>5000</td><td>Long requests to exhaust FPM pool</td></tr>
+        <tr><td>High throughput</td><td>50</td><td>1000</td><td>Fast requests to maximize RPS</td></tr>
       </table>
+
+      <h3>Response Format</h3>
+      <p>Each load test request returns detailed timing information:</p>
+      <pre><code>{
+  "success": true,
+  "requestedWorkMs": 500,
+  "actualCpuWorkMs": 502.34,
+  "totalElapsedMs": 503.12,
+  "memoryAllocatedKb": 10000,
+  "timestamp": "2024-01-15T10:30:45+00:00",
+  "workerPid": 12345
+}</code></pre>
     </section>
 
   </main>
