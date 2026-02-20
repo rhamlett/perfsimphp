@@ -388,7 +388,7 @@ function scheduleNextProbe() {
  * The server does multiple curl requests to localhost:8080/api/metrics/probe,
  * avoiding the stamp frontend while still measuring real PHP-FPM latency.
  * 
- * After completion (success or failure), schedules the next probe.
+ * After ALL probes are dispatched to the chart, schedules the next probe.
  */
 function probeOnce() {
   // Use internal batch probing (reduces AppLens traffic)
@@ -425,6 +425,7 @@ function probeOnce() {
       // Process each probe in the batch, dispatching at 100ms intervals
       // This gives smooth chart updates while only making 1 request/sec to AppLens
       if (data.probes && Array.isArray(data.probes)) {
+        const probeCount = data.probes.length;
         data.probes.forEach((probe, index) => {
           setTimeout(() => {
             if (typeof onProbeLatency === 'function') {
@@ -436,8 +437,17 @@ function probeOnce() {
                 loadTestConcurrent: probe.loadTestConcurrent || 0,
               });
             }
+            
+            // Schedule next batch AFTER the last probe is dispatched
+            // This prevents overlap/gaps between batches
+            if (index === probeCount - 1) {
+              scheduleNextProbe();
+            }
           }, index * INTERNAL_PROBE_INTERVAL);
         });
+      } else {
+        // No probes in response, schedule next batch immediately
+        scheduleNextProbe();
       }
     })
     .catch(error => {
@@ -452,9 +462,7 @@ function probeOnce() {
           loadTestConcurrent: 0,
         });
       }
-    })
-    .finally(() => {
-      // Schedule next probe after this one completes (prevents overlapping requests)
+      // Schedule next probe after failure
       scheduleNextProbe();
     });
 }
