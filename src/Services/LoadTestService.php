@@ -13,17 +13,17 @@
  *   - Workers return quickly, allowing dashboard polls to succeed
  *   - Load test frameworks hit the endpoint repeatedly for sustained load
  *   - Under heavy load, requests naturally queue (realistic degradation)
- *   - NO shared state, NO file locks, NO complex tracking
  *
  * PARAMETERS (2 tunable):
  *   - workMs (default: 100) — Duration of CPU work in milliseconds
  *   - memoryKb (default: 5000) — Memory to allocate in KB (5MB)
  *
- * WHAT'S MEASURED:
- *   - Response time includes: queue wait + work time + PHP overhead
- *   - Under load, queue wait increases (natural back-pressure)
- *   - CPU metrics will show real utilization from hash work
- *   - Memory metrics will show allocations
+ * STATS LOGGING:
+ *   Every 60 seconds, logs a summary to the event log with:
+ *   - Request count for the period
+ *   - Average response time
+ *   - Peak response time
+ *   Triggered by either load test requests OR metrics polling (hybrid).
  *
  * @module src/Services/LoadTestService.php
  */
@@ -33,11 +33,18 @@ declare(strict_types=1);
 namespace PerfSimPhp\Services;
 
 use PerfSimPhp\Services\EventLogService;
+use PerfSimPhp\SharedStorage;
 
 class LoadTestService
 {
     /** Maximum work duration to prevent runaway (5 seconds) */
     private const MAX_WORK_MS = 5000;
+
+    /** Period stats broadcast interval (seconds) */
+    private const STATS_PERIOD_SECONDS = 60;
+
+    /** APCu keys for period stats */
+    private const STATS_KEY = 'loadtest_period_stats';
 
     /** Default request parameters */
     private const DEFAULTS = [
@@ -80,7 +87,7 @@ class LoadTestService
         $memoryKb = max(1, min($memoryKb, 50000)); // Max 50MB
 
         // Step 1: Allocate memory (held during work)
-        $memory = str_repeat('X', $memoryKb * 1024);
+        $memory = self::allocateRealMemory($memoryKb);
         $memoryAllocated = strlen($memory);
 
         // Step 2: Do real CPU work
@@ -93,18 +100,8 @@ class LoadTestService
         // Calculate total elapsed time
         $totalElapsedMs = (microtime(true) - $startTime) * 1000;
 
-        // Log to event log (sampled - ~1% of requests to avoid flooding)
-        if (mt_rand(1, 100) === 1) {
-            try {
-                EventLogService::info(
-                    'LOAD_TEST_REQUEST',
-                    sprintf('Load test: %dms work, %dKB mem, %.0fms total (pid %d)', 
-                        $workMs, $memoryKb, $totalElapsedMs, getmypid())
-                );
-            } catch (\Throwable $e) {
-                // Silently skip - event log is nice-to-have
-            }
-        }
+        // Record stats for this request (and check for 60s broadcast)
+        self::recordAndMaybeBroadcast($totalElapsedMs);
 
         return [
             'success' => true,
@@ -118,19 +115,110 @@ class LoadTestService
     }
 
     /**
-     * Gets current statistics (simplified - no concurrent tracking).
+     * Gets current statistics.
      * Returns format expected by MetricsController probe endpoints.
+     * Also checks if 60s period has elapsed and broadcasts if needed.
      */
     public static function getCurrentStats(): array
     {
-        // No concurrent tracking in simplified version
-        // Return format compatible with probe endpoints
+        // Check for 60s broadcast (triggered by metrics polling)
+        self::checkAndBroadcast();
+
         return [
             'currentConcurrentRequests' => 0,
             'totalRequestsProcessed' => 0,
             'totalExceptionsThrown' => 0,
             'averageResponseTimeMs' => 0,
             'timestamp' => date('c'),
+        ];
+    }
+
+    /**
+     * Records a request's stats and broadcasts if 60s elapsed.
+     * Called after each load test request completes.
+     */
+    private static function recordAndMaybeBroadcast(float $responseTimeMs): void
+    {
+        try {
+            SharedStorage::modify(self::STATS_KEY, function($stats) use ($responseTimeMs) {
+                if (!is_array($stats)) {
+                    $stats = self::initPeriodStats();
+                }
+
+                // Record this request
+                $stats['requestCount']++;
+                $stats['responseTimeSum'] += $responseTimeMs;
+                $stats['maxResponseTime'] = max($stats['maxResponseTime'], $responseTimeMs);
+
+                return $stats;
+            }, self::initPeriodStats());
+
+            // Check if we should broadcast
+            self::checkAndBroadcast();
+        } catch (\Throwable $e) {
+            // Silently skip - stats are nice-to-have
+        }
+    }
+
+    /**
+     * Checks if 60 seconds have elapsed and broadcasts stats if so.
+     * Can be called from load test requests OR metrics polling.
+     */
+    public static function checkAndBroadcast(): void
+    {
+        try {
+            $stats = SharedStorage::get(self::STATS_KEY);
+            if (!is_array($stats) || !isset($stats['periodStart'])) {
+                return;
+            }
+
+            $elapsed = time() - $stats['periodStart'];
+            if ($elapsed < self::STATS_PERIOD_SECONDS) {
+                return;
+            }
+
+            // 60s elapsed - broadcast and reset
+            $requestCount = $stats['requestCount'] ?? 0;
+            if ($requestCount === 0) {
+                // No requests, just reset the timer
+                SharedStorage::set(self::STATS_KEY, self::initPeriodStats());
+                return;
+            }
+
+            // Calculate averages
+            $avgResponseTime = $stats['responseTimeSum'] / $requestCount;
+            $maxResponseTime = $stats['maxResponseTime'];
+            $requestsPerSecond = $requestCount / self::STATS_PERIOD_SECONDS;
+
+            // Log to event log
+            EventLogService::info(
+                'LOAD_TEST_STATS',
+                sprintf(
+                    '📊 Load Test (60s): %d requests, %.0fms avg, %.0fms max, %.1f RPS',
+                    $requestCount,
+                    $avgResponseTime,
+                    $maxResponseTime,
+                    $requestsPerSecond
+                )
+            );
+
+            // Reset for next period
+            SharedStorage::set(self::STATS_KEY, self::initPeriodStats());
+        } catch (\Throwable $e) {
+            // Silently skip
+        }
+    }
+
+    /**
+     * Initialize period stats structure.
+     */
+    private static function initPeriodStats(): array
+    {
+        return [
+            'periodStart' => time(),
+            'requestCount' => 0,
+            'responseTimeSum' => 0.0,
+            'maxResponseTime' => 0.0,
         ];
     }
 
@@ -152,5 +240,27 @@ class LoadTestService
         }
 
         return (microtime(true) - $startTime) * 1000;
+    }
+
+    /**
+     * Allocates real memory that can't be optimized away.
+     * Uses random bytes to prevent PHP's copy-on-write optimization.
+     *
+     * @param int $sizeKb Size in kilobytes
+     * @return string The allocated memory buffer
+     */
+    private static function allocateRealMemory(int $sizeKb): string
+    {
+        // Build buffer in chunks with unique content per chunk
+        // This prevents PHP from using copy-on-write optimization
+        $buffer = '';
+        
+        for ($i = 0; $i < $sizeKb; $i++) {
+            // Each chunk has unique content based on index and time
+            $seed = md5((string)$i . microtime(true));
+            $buffer .= str_repeat($seed, 32); // 32 * 32 = 1024 bytes
+        }
+        
+        return $buffer;
     }
 }
