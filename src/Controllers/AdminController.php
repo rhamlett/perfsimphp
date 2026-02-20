@@ -5,11 +5,12 @@
  * =============================================================================
  *
  * ENDPOINTS:
- *   GET /api/simulations        → List all active simulations (any type)
- *   GET /api/admin/status       → Comprehensive status (config + simulations + metrics)
- *   GET /api/admin/events       → Recent event log entries (with limit parameter)
- *   GET /api/admin/memory-debug → Memory diagnostic info (cgroup, OS, process)
- *   GET /api/admin/system-info  → System info (CPU count, PHP version, platform)
+ *   GET /api/simulations           → List all active simulations (any type)
+ *   GET /api/admin/status          → Comprehensive status (config + simulations + metrics)
+ *   GET /api/admin/events          → Recent event log entries (with limit parameter)
+ *   GET /api/admin/memory-debug    → Memory diagnostic info (cgroup, OS, process)
+ *   GET /api/admin/system-info     → System info (CPU count, PHP version, platform)
+ *   GET /api/admin/telemetry-status → Application Insights status
  *
  * @module src/Controllers/AdminController.php
  */
@@ -24,6 +25,7 @@ use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\EventLogService;
 use PerfSimPhp\Services\MetricsService;
 use PerfSimPhp\Services\BlockingService;
+use PerfSimPhp\Services\TelemetryService;
 
 class AdminController
 {
@@ -201,6 +203,35 @@ class AdminController
             'websiteHostname' => getenv('WEBSITE_HOSTNAME') ?: null,
             'websiteSku' => getenv('WEBSITE_SKU') ?: null,
             'extensions' => get_loaded_extensions(),
+        ]);
+    }
+
+    /**
+     * GET /api/admin/telemetry-status
+     * Returns Application Insights telemetry configuration status.
+     */
+    public static function telemetryStatus(): void
+    {
+        $status = TelemetryService::getStatus();
+
+        echo json_encode([
+            'applicationInsights' => [
+                'initialized' => $status['initialized'],
+                'enabled' => $status['enabled'],
+                'connectionStringConfigured' => $status['connectionStringConfigured'],
+                'serviceName' => $status['serviceName'],
+                'pendingItems' => $status['pendingItems'],
+                'lastError' => $status['lastError'],
+            ],
+            'configuration' => [
+                'connectionStringVar' => 'APPLICATIONINSIGHTS_CONNECTION_STRING',
+                'serviceNameVar' => 'OTEL_SERVICE_NAME',
+            ],
+            'help' => $status['enabled']
+                ? 'Telemetry is active. Check Application Insights in 2-5 minutes for data.'
+                : ($status['connectionStringConfigured']
+                    ? 'Connection string found but initialization failed. Check lastError.'
+                    : 'Set APPLICATIONINSIGHTS_CONNECTION_STRING in App Settings to enable.'),
         ]);
     }
 }

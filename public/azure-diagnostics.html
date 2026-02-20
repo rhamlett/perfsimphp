@@ -860,6 +860,10 @@ script_filename = /home/site/wwwroot/public/index.php
       <h3>Step 4: Verify Telemetry</h3>
       <p>After deployment with the connection string configured:</p>
       <ol>
+        <li>Check telemetry status via the API:
+          <pre><code>GET /api/admin/telemetry-status</code></pre>
+          <p>Response shows whether telemetry is enabled and any initialization errors.</p>
+        </li>
         <li>Generate some traffic to your application</li>
         <li>Wait 2-5 minutes for telemetry to appear</li>
         <li>In Application Insights, go to <strong>Transaction search</strong></li>
@@ -879,7 +883,7 @@ script_filename = /home/site/wwwroot/public/index.php
       <ul>
         <li>The application runs normally without any errors</li>
         <li>Telemetry calls become no-ops (zero overhead)</li>
-        <li>A single info message is logged at startup: <code>Application Insights disabled: APPLICATIONINSIGHTS_CONNECTION_STRING not set</code></li>
+        <li>Check <code>/api/admin/telemetry-status</code> to confirm status</li>
       </ul>
       <p>This allows the same codebase to run locally or in environments without Application Insights configured.</p>
 

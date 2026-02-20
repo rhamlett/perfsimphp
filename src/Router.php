@@ -31,6 +31,7 @@
  *   GET    /api/admin/events      → AdminController::events
  *   GET    /api/admin/memory-debug → AdminController::memoryDebug
  *   GET    /api/admin/system-info → AdminController::systemInfo
+ *   GET    /api/admin/telemetry-status → AdminController::telemetryStatus
  *
  * @module src/Router.php
  */
@@ -214,6 +215,10 @@ class Router
         }
         if ($method === 'GET' && $path === '/api/admin/system-info') {
             AdminController::systemInfo();
+            return null;
+        }
+        if ($method === 'GET' && $path === '/api/admin/telemetry-status') {
+            AdminController::telemetryStatus();
             return null;
         }
 

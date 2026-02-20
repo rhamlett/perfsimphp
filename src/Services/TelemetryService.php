@@ -35,6 +35,7 @@ class TelemetryService
     private static string $instrumentationKey = '';
     private static string $ingestionEndpoint = '';
     private static string $serviceName = '';
+    private static string $lastError = '';
     private static array $pendingTelemetry = [];
     
     // Current request tracking
@@ -79,10 +80,7 @@ class TelemetryService
         
         if (empty($connectionString)) {
             self::$enabled = false;
-            EventLogService::info(
-                'TELEMETRY',
-                'Application Insights disabled: ' . self::CONNECTION_STRING_VAR . ' not set'
-            );
+            // Don't log - this runs on every request and would spam the event log
             return;
         }
 
@@ -102,16 +100,12 @@ class TelemetryService
             self::$serviceName = self::getEnvVar(self::SERVICE_NAME_VAR) ?: self::DEFAULT_SERVICE_NAME;
             
             self::$enabled = true;
-            EventLogService::info(
-                'TELEMETRY',
-                'Application Insights enabled for service: ' . self::$serviceName
-            );
+            // Don't log success - this runs on every request and would spam the event log
         } catch (\Throwable $e) {
             self::$enabled = false;
-            EventLogService::error(
-                'TELEMETRY',
-                'Failed to initialize Application Insights: ' . $e->getMessage()
-            );
+            self::$lastError = $e->getMessage();
+            // Don't log errors here - would spam on every request
+            // Check TelemetryService::getStatus() for initialization errors
         }
     }
 
@@ -363,6 +357,7 @@ class TelemetryService
             'connectionStringConfigured' => !empty(self::getEnvVar(self::CONNECTION_STRING_VAR)),
             'serviceName' => self::$serviceName ?: self::DEFAULT_SERVICE_NAME,
             'pendingItems' => count(self::$pendingTelemetry),
+            'lastError' => self::$lastError ?: null,
         ];
     }
 

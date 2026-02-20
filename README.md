@@ -210,6 +210,16 @@ PHP-FPM master automatically respawns crashed workers.
 | `/api/simulations/crash/{type}` | POST | Trigger crash |
 | `/api/simulations/crash/stats` | GET | Crash statistics |
 
+### Admin & Diagnostics
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/admin/status` | GET | Comprehensive status |
+| `/api/admin/events` | GET | Recent event log entries |
+| `/api/admin/system-info` | GET | System info (CPU, PHP, platform) |
+| `/api/admin/memory-debug` | GET | Memory diagnostic info |
+| `/api/admin/telemetry-status` | GET | Application Insights status |
+
 ### Load Testing
 
 Dedicated endpoint for Azure Load Testing:
