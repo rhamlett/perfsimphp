@@ -26,9 +26,28 @@ for dir in /usr/local/etc/php-fpm.d /etc/php/*/fpm/pool.d /etc/php-fpm.d; do
     fi
 done
 
+# Find the user/group from the existing www pool config
+FPM_USER="nobody"
+FPM_GROUP="nobody"
+if [ -f "$FPM_POOL_DIR/www.conf" ]; then
+    FOUND_USER=$(grep -E "^user\s*=" "$FPM_POOL_DIR/www.conf" | head -1 | sed 's/.*=\s*//' | tr -d ' ')
+    FOUND_GROUP=$(grep -E "^group\s*=" "$FPM_POOL_DIR/www.conf" | head -1 | sed 's/.*=\s*//' | tr -d ' ')
+    if [ -n "$FOUND_USER" ]; then FPM_USER="$FOUND_USER"; fi
+    if [ -n "$FOUND_GROUP" ]; then FPM_GROUP="$FOUND_GROUP"; fi
+    echo "Discovered FPM user/group from www.conf: $FPM_USER / $FPM_GROUP"
+fi
+
 if [ -n "$FPM_POOL_DIR" ] && [ -f "$METRICS_POOL_SRC" ]; then
+    # Copy the template and inject the correct user/group
     cp "$METRICS_POOL_SRC" "$FPM_POOL_DIR/metrics.conf"
+    # Add user/group after the [metrics] line
+    sed -i "s/\[metrics\]/[metrics]\nuser = $FPM_USER\ngroup = $FPM_GROUP/" "$FPM_POOL_DIR/metrics.conf"
     echo "Installed metrics FPM pool config to: $FPM_POOL_DIR/metrics.conf"
+    echo "--- metrics.conf contents ---"
+    cat "$FPM_POOL_DIR/metrics.conf"
+    echo "-----------------------------"
+    # Verify FPM can parse the config
+    php-fpm -t 2>&1 || echo "FPM config test failed!"
 else
     echo "WARNING: Could not install metrics pool. FPM_POOL_DIR=$FPM_POOL_DIR"
     echo "Searching for pool.d directories..."
