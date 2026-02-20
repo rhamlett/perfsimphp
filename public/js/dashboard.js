@@ -135,10 +135,10 @@ function updateDashboard(metrics) {
     cpuValue.textContent = (metrics.cpu?.usagePercent || 0).toFixed(1) + '%';
   }
 
-  // Memory value
+  // Memory value - use fpmPoolRssMb to capture all PHP-FPM workers (including load test processes)
   const memoryValue = document.getElementById('memory-value');
   if (memoryValue) {
-    memoryValue.textContent = (metrics.memory?.usedMb || 0).toFixed(0);
+    memoryValue.textContent = (metrics.memory?.fpmPoolRssMb || metrics.memory?.usedMb || 0).toFixed(0);
   }
 
   // Memory total (system RAM)

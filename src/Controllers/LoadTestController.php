@@ -12,12 +12,13 @@
  *
  * PARAMETERS:
  *   - workMs (int)    : Duration of CPU work in ms (default: 100, max: 5000)
- *   - memoryKb (int)  : Memory to allocate in KB (default: 1024, max: 50000)
+ *   - memoryKb (int)  : Memory to allocate in KB (default: 5000, max: 50000)
+ *   - holdMs (int)    : Hold memory after CPU work in ms (default: 500, max: 5000)
  *
  * EXAMPLES:
  *   GET /api/loadtest
  *   GET /api/loadtest?workMs=200
- *   GET /api/loadtest?workMs=50&memoryKb=2048
+ *   GET /api/loadtest?workMs=50&memoryKb=10000&holdMs=1000
  *
  * @module src/Controllers/LoadTestController.php
  */
@@ -44,6 +45,9 @@ class LoadTestController
         }
         if (isset($_GET['memoryKb']) && is_numeric($_GET['memoryKb'])) {
             $request['memoryKb'] = (int) $_GET['memoryKb'];
+        }
+        if (isset($_GET['holdMs']) && is_numeric($_GET['holdMs'])) {
+            $request['holdMs'] = (int) $_GET['holdMs'];
         }
         
         // Legacy parameter support

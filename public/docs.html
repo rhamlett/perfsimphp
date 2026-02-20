@@ -472,14 +472,14 @@ POST /api/simulations/memory/release</code></pre>
 
       <h3>Usage</h3>
       <p>Use the <code>GET /api/loadtest</code> endpoint directly in Azure Load Testing &mdash; no JMeter script required:</p>
-      <pre><code># With defaults (100ms CPU work, 5MB memory)
+      <pre><code># With defaults (100ms CPU work, 5MB memory, 500ms hold)
 https://perfsimphp.azurewebsites.net/api/loadtest
 
 # Custom CPU work duration
 https://perfsimphp.azurewebsites.net/api/loadtest?workMs=200
 
-# Higher memory allocation
-https://perfsimphp.azurewebsites.net/api/loadtest?workMs=100&amp;memoryKb=10000
+# Higher memory with longer hold (visible on dashboard chart)
+https://perfsimphp.azurewebsites.net/api/loadtest?workMs=100&amp;memoryKb=10000&amp;holdMs=1000
 
 # Maximum stress (5s work, 50MB memory)
 https://perfsimphp.azurewebsites.net/api/loadtest?workMs=5000&amp;memoryKb=50000</code></pre>
@@ -489,6 +489,7 @@ https://perfsimphp.azurewebsites.net/api/loadtest?workMs=5000&amp;memoryKb=50000
         <tr><th>Parameter</th><th>Default</th><th>Max</th><th>Description</th></tr>
         <tr><td><code>workMs</code></td><td>100</td><td>5000</td><td>Duration of CPU work in milliseconds (uses hash_pbkdf2)</td></tr>
         <tr><td><code>memoryKb</code></td><td>5000</td><td>50000</td><td>Memory to allocate per request in KB</td></tr>
+        <tr><td><code>holdMs</code></td><td>500</td><td>5000</td><td>Time to hold memory after CPU work (ms). Ensures dashboard can capture memory usage.</td></tr>
       </table>
 
       <div class="info-box">
@@ -498,6 +499,7 @@ https://perfsimphp.azurewebsites.net/api/loadtest?workMs=5000&amp;memoryKb=50000
       <h3>Design Philosophy</h3>
       <ul>
         <li><strong>Short Bursts:</strong> Each request does ~100ms of real work, then returns</li>
+        <li><strong>Memory Visibility:</strong> Memory is held for <code>holdMs</code> after CPU work so dashboard metrics can capture it</li>
         <li><strong>Fast Turnover:</strong> Workers return quickly, preventing total pool exhaustion</li>
         <li><strong>Natural Degradation:</strong> Under heavy load, requests queue up (realistic back-pressure)</li>
         <li><strong>Dashboard Resilience:</strong> Metrics endpoints use a dedicated FPM pool (see below)</li>

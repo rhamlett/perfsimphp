@@ -311,8 +311,8 @@
 
         <div class="metric-box memory">
           <h4>📊 Memory Working Set (MB)</h4>
-          <p><strong>What it measures:</strong> Total memory the PHP-FPM master and worker processes have allocated and are actively using.</p>
-          <p><strong>Why it matters:</strong> Each PHP-FPM worker has its own memory space. Memory leaks within a request are cleaned up when the request ends, but shared memory (APCu) and large allocations can persist.</p>
+          <p><strong>What it measures:</strong> Total RSS (Resident Set Size) summed across all PHP-FPM worker processes (reads VmRSS from <code>/proc/*/status</code>). Includes both main pool (load tests) and metrics pool workers.</p>
+          <p><strong>Why it matters:</strong> Each PHP-FPM worker has its own memory space. This metric shows memory used by load test operations running in different processes than the metrics collector.</p>
           <p><strong>Normal range:</strong> Depends on worker count and app, but should stabilize after warmup.</p>
           <p><strong>Warning signs:</strong> Continuous growth over time across multiple workers.</p>
         </div>
@@ -1013,7 +1013,8 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
       <p><strong>Query Parameters:</strong></p>
       <ul>
         <li><code>workMs</code> - Duration of CPU work in milliseconds (default: 100, max: 5000)</li>
-        <li><code>memoryKb</code> - Memory buffer size in kilobytes held during work (default: 5000 = 5MB, max: 50000 = 50MB)</li>
+        <li><code>memoryKb</code> - Memory buffer size in kilobytes (default: 5000 = 5MB, max: 50000 = 50MB)</li>
+        <li><code>holdMs</code> - Time to hold memory after CPU work in milliseconds (default: 500, max: 5000). Ensures memory is visible in metrics.</li>
       </ul>
 
       <ol start="3">
@@ -1026,11 +1027,11 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
       <ol>
         <li><strong>Allocate memory</strong> - Creates a buffer of <code>memoryKb</code> kilobytes with unique content (prevents PHP copy-on-write optimization)</li>
         <li><strong>CPU work</strong> - Performs cryptographic hashing (hash_pbkdf2) for <code>workMs</code> milliseconds</li>
-        <li><strong>Touch memory</strong> - Accesses the buffer to prevent compiler optimization</li>
-        <li><strong>Return</strong> - Reports actual work performed in the response</li>
+        <li><strong>Hold memory</strong> - Sleeps for <code>holdMs</code> milliseconds with memory still allocated (ensures metrics polling captures usage)</li>
+        <li><strong>Return</strong> - Reports actual work performed in the response (memory released when request ends)</li>
       </ol>
       <div class="alert-box info">
-        <strong>Memory Visibility Tip:</strong> To see memory usage in the dashboard, use <code>workMs=1000</code> or higher. With the default 100ms work time, the memory allocation may complete between dashboard polling intervals (250ms).
+        <strong>Memory Visibility:</strong> The <code>holdMs</code> parameter (default 500ms) ensures memory stays allocated long enough for the dashboard's 500ms polling interval to capture it. Increase holdMs if memory still doesn't show.
       </div>
 
       <h3>Diagnosing Load Test Results</h3>
@@ -1056,11 +1057,12 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
       <p>View these in the dashboard's Event Log panel during testing.</p>
 
       <h3>Request Parameters Reference</h3>
-      <p>The endpoint uses only two parameters for simplicity:</p>
+      <p>The endpoint uses three parameters:</p>
       <table class="comparison-table">
         <tr><th>Parameter</th><th>Default</th><th>Max</th><th>Purpose</th></tr>
-        <tr><td><code>workMs</code></td><td>100</td><td>5000</td><td>Duration of CPU work (ms). Controls how long each FPM worker is occupied.</td></tr>
-        <tr><td><code>memoryKb</code></td><td>5000</td><td>50000</td><td>Memory buffer size (KB). Held during CPU work, then released.</td></tr>
+        <tr><td><code>workMs</code></td><td>100</td><td>5000</td><td>Duration of CPU work (ms). Controls how long each FPM worker is occupied doing CPU work.</td></tr>
+        <tr><td><code>memoryKb</code></td><td>5000</td><td>50000</td><td>Memory buffer size (KB). Allocated at start, held until request ends.</td></tr>
+        <tr><td><code>holdMs</code></td><td>500</td><td>5000</td><td>Time to hold memory after CPU work (ms). Ensures metrics polling captures memory usage.</td></tr>
       </table>
       <div class="alert-box info">
         <strong>Legacy Support:</strong> The old parameters <code>targetDurationMs</code> and <code>memorySizeKb</code> are still accepted for backward compatibility and map to <code>workMs</code> and <code>memoryKb</code> respectively.

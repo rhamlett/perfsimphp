@@ -93,7 +93,7 @@
               <div class="tile-icon">📊</div>
               <div class="tile-info">
                 <!-- PORTING NOTE: Update tooltip for target runtime's memory model -->
-                <span class="tile-label">Memory Working Set <span class="info-icon-small" title="PHP process memory usage via memory_get_usage(true). On Azure App Service, this may exceed the SKU's advertised RAM due to shared VM resources.">ⓘ</span></span>
+                <span class="tile-label">Memory Working Set <span class="info-icon-small" title="Total RSS across all PHP-FPM workers (reads VmRSS from /proc/*/status). Shows memory from load tests running in different processes.">ⓘ</span></span>
                 <div class="tile-value"><span id="memory-value">0</span> <span class="tile-unit">MB</span> <span id="memory-total" class="tile-subtext">of -- GB</span></div>
               </div>
             </div>

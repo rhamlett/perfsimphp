@@ -128,10 +128,10 @@ See [Enabling Application Insights for PHP](public/azure-diagnostics.html#enable
 The real-time dashboard displays:
 
 - **CPU Usage** — Percentage from `/proc/stat` with delta calculation
-- **Memory** — PHP memory usage plus simulated allocations
+- **Memory (MB)** — Total RSS across all PHP-FPM workers (from `/proc/*/status` VmRSS). Shows load test memory allocations.
 - **FPM Workers** — Active workers and busy count
-- **RSS Memory** — Resident set size from `/proc/self/status`
-- **Request Latency** — Live latency chart from XHR probes
+- **RSS Memory** — Resident set size of the current metrics process
+- **Request Latency** — Live latency chart from XHR probes (targets <200ms)
 
 ## 🔥 Simulations
 
@@ -226,7 +226,7 @@ Dedicated endpoint for Azure Load Testing:
 
 ```
 GET /api/loadtest
-GET /api/loadtest?workMs=100&memoryKb=5000
+GET /api/loadtest?workMs=100&memoryKb=5000&holdMs=500
 GET /api/loadtest/stats
 ```
 
@@ -235,9 +235,11 @@ GET /api/loadtest/stats
 |-----------|---------|-----|-------------|
 | `workMs` | 100 | 5000 | Duration of CPU work in milliseconds (uses hash_pbkdf2) |
 | `memoryKb` | 5000 | 50000 | Memory to allocate per request in KB |
+| `holdMs` | 500 | 5000 | Time to hold memory after CPU work (ms). Ensures metrics polling captures memory usage. |
 
 **Design Philosophy:**
 - Each request does a SHORT burst of real work (~100ms)
+- Memory is held for `holdMs` after CPU work so dashboard can capture it
 - Workers return quickly, keeping dashboard responsive
 - Load test frameworks hit the endpoint repeatedly for sustained load
 - Under heavy load, requests naturally queue (realistic degradation)

@@ -50,6 +50,7 @@ class LoadTestService
     private const DEFAULTS = [
         'workMs' => 100,      // Duration of CPU work (ms)
         'memoryKb' => 5000,   // Memory to hold during work (KB) - 5MB default
+        'holdMs' => 500,      // How long to hold memory after CPU work (ms)
     ];
 
     /**
@@ -73,6 +74,7 @@ class LoadTestService
         // Parse and validate parameters
         $workMs = isset($request['workMs']) ? (int)$request['workMs'] : self::DEFAULTS['workMs'];
         $memoryKb = isset($request['memoryKb']) ? (int)$request['memoryKb'] : self::DEFAULTS['memoryKb'];
+        $holdMs = isset($request['holdMs']) ? (int)$request['holdMs'] : self::DEFAULTS['holdMs'];
 
         // Legacy parameter support
         if (isset($request['targetDurationMs'])) {
@@ -85,13 +87,23 @@ class LoadTestService
         // Enforce limits
         $workMs = max(10, min($workMs, self::MAX_WORK_MS));
         $memoryKb = max(1, min($memoryKb, 50000)); // Max 50MB
+        $holdMs = max(0, min($holdMs, 5000)); // Max 5s hold
 
-        // Step 1: Allocate memory (held during work)
+        // Step 1: Allocate memory (held during work AND hold period)
         $memory = self::allocateRealMemory($memoryKb);
         $memoryAllocated = strlen($memory);
 
         // Step 2: Do real CPU work
         $cpuWorkActual = self::doCpuWork($workMs);
+
+        // Step 3: Hold memory for additional time so metrics polling can see it
+        // This gives the 500ms metrics poll a chance to capture the memory usage
+        if ($holdMs > 0) {
+            usleep($holdMs * 1000);
+            // Touch memory during hold to prevent optimization
+            $touchPos = mt_rand(0, $memoryAllocated - 1);
+            $_ = ord($memory[$touchPos]);
+        }
 
         // Touch memory to prevent optimization
         $touchPos = mt_rand(0, $memoryAllocated - 1);
@@ -107,6 +119,7 @@ class LoadTestService
             'success' => true,
             'requestedWorkMs' => $workMs,
             'actualCpuWorkMs' => round($cpuWorkActual, 2),
+            'holdMs' => $holdMs,
             'totalElapsedMs' => round($totalElapsedMs, 2),
             'memoryAllocatedKb' => round($memoryAllocated / 1024, 2),
             'timestamp' => date('c'),

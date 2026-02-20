@@ -670,7 +670,9 @@ function updateCharts(metrics) {
   const now = getUtcTimeString();
   chartData.labels.push(now);
   chartData.cpu.push(metrics.cpu?.usagePercent || 0);
-  chartData.memory.push(metrics.memory?.usedMb || metrics.memory?.heapUsedMb || 0);
+  // Use fpmPoolRssMb which captures memory across all PHP-FPM workers (main + metrics pools)
+  // This shows load test memory allocations that run in different processes
+  chartData.memory.push(metrics.memory?.fpmPoolRssMb || metrics.memory?.usedMb || 0);
   // PHP doesn't have event loop lag — use active worker count or 0
   chartData.eventloop.push(metrics.process?.activeWorkers || 0);
   chartData.rss.push(metrics.memory?.rssMb || 0);
@@ -705,7 +707,8 @@ function updateMetricBars(metrics) {
 
   if (memoryBar) {
     const totalMb = metrics.memory?.totalSystemMb || 4096;
-    const usedMb = metrics.memory?.usedMb || metrics.memory?.heapUsedMb || 0;
+    // Use fpmPoolRssMb to capture all PHP-FPM workers (including load test processes)
+    const usedMb = metrics.memory?.fpmPoolRssMb || metrics.memory?.usedMb || 0;
     memoryBar.style.width = Math.min(100, (usedMb / totalMb) * 100) + '%';
   }
 
