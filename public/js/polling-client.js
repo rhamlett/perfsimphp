@@ -372,15 +372,16 @@ function startProbePolling() {
 }
 
 /**
- * Schedules the next probe immediately after the current one completes.
- * Server response time (~1s) provides natural pacing between requests.
+ * Schedules the next probe immediately after HTTP response.
+ * Minimal delay (10ms) for browser to process, then start next request.
+ * The server-side processing (~1s) provides natural pacing.
  */
 function scheduleNextProbe() {
-  // Small delay to prevent tight loop on errors
-  const delay = Math.max(PROBE_POLL_INTERVAL, 100);
+  // Minimal delay - just enough for browser to breathe
+  // Server response time (~1s) provides the real pacing
   probePollTimer = setTimeout(() => {
     probeOnce();
-  }, delay);
+  }, 10);
 }
 
 /**
@@ -388,7 +389,9 @@ function scheduleNextProbe() {
  * The server does multiple curl requests to localhost:8080/api/metrics/probe,
  * avoiding the stamp frontend while still measuring real PHP-FPM latency.
  * 
- * After ALL probes are dispatched to the chart, schedules the next probe.
+ * TIMING: The next request is scheduled immediately after HTTP response
+ * (not after all probes are dispatched). This overlaps fetch/dispatch cycles
+ * so that while batch N+1 is being fetched (~1s), batch N is being displayed.
  */
 function probeOnce() {
   // Use internal batch probing (reduces AppLens traffic)
@@ -398,6 +401,9 @@ function probeOnce() {
     t: Date.now().toString(),
   });
   const probeUrl = '/api/metrics/internal-probes?' + params.toString();
+  
+  // Track the external request time for AppLens visibility
+  const externalRequestStart = Date.now();
 
   fetchWithTimeout(probeUrl, { 
     method: 'GET',
@@ -411,6 +417,18 @@ function probeOnce() {
     })
     .then(data => {
       onPollSuccess();
+      
+      // Add the external request latency to the chart (for AppLens visibility)
+      const externalLatency = Date.now() - externalRequestStart;
+      if (typeof onProbeLatency === 'function') {
+        onProbeLatency({
+          latencyMs: externalLatency,
+          timestamp: Date.now(),
+          success: true,
+          loadTestActive: data.probes?.[0]?.loadTestActive || false,
+          loadTestConcurrent: data.probes?.[0]?.loadTestConcurrent || 0,
+        });
+      }
 
       // Debug logging for troubleshooting
       const failedProbes = data.probes?.filter(p => !p.success) || [];
@@ -425,7 +443,6 @@ function probeOnce() {
       // Process each probe in the batch, dispatching at 100ms intervals
       // This gives smooth chart updates while only making 1 request/sec to AppLens
       if (data.probes && Array.isArray(data.probes)) {
-        const probeCount = data.probes.length;
         data.probes.forEach((probe, index) => {
           setTimeout(() => {
             if (typeof onProbeLatency === 'function') {
@@ -437,17 +454,8 @@ function probeOnce() {
                 loadTestConcurrent: probe.loadTestConcurrent || 0,
               });
             }
-            
-            // Schedule next batch AFTER the last probe is dispatched
-            // This prevents overlap/gaps between batches
-            if (index === probeCount - 1) {
-              scheduleNextProbe();
-            }
           }, index * INTERNAL_PROBE_INTERVAL);
         });
-      } else {
-        // No probes in response, schedule next batch immediately
-        scheduleNextProbe();
       }
     })
     .catch(error => {
@@ -462,7 +470,10 @@ function probeOnce() {
           loadTestConcurrent: 0,
         });
       }
-      // Schedule next probe after failure
+    })
+    .finally(() => {
+      // Schedule next probe IMMEDIATELY after HTTP response (not after dispatches)
+      // This overlaps: while server processes batch N+1 (~1s), batch N displays (~1s)
       scheduleNextProbe();
     });
 }
