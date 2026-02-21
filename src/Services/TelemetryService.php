@@ -302,6 +302,105 @@ class TelemetryService
     }
 
     /**
+     * Send a test telemetry item and return the full response for debugging.
+     * Unlike regular telemetry, this waits for and captures the response.
+     * 
+     * @return array{success: bool, statusCode: int|null, response: string|null, error: string|null, endpoint: string, payload: string}
+     */
+    public static function sendTestTelemetry(): array
+    {
+        if (!self::$initialized) {
+            self::init();
+        }
+        
+        if (!self::$enabled) {
+            return [
+                'success' => false,
+                'statusCode' => null,
+                'response' => null,
+                'error' => self::$lastError ?: 'Telemetry not enabled - connection string missing or invalid',
+                'endpoint' => '',
+                'payload' => '',
+            ];
+        }
+
+        // Create a test event
+        $testEvent = [
+            'name' => 'Microsoft.ApplicationInsights.' . str_replace('-', '', self::$instrumentationKey) . '.Event',
+            'time' => gmdate('Y-m-d\TH:i:s.v\Z'),
+            'iKey' => self::$instrumentationKey,
+            'tags' => [
+                'ai.operation.id' => self::generateOperationId(),
+                'ai.cloud.role' => self::$serviceName,
+                'ai.cloud.roleInstance' => gethostname() ?: 'unknown',
+                'ai.internal.sdkVersion' => self::SDK_VERSION,
+            ],
+            'data' => [
+                'baseType' => 'EventData',
+                'baseData' => [
+                    'ver' => 2,
+                    'name' => 'TelemetryTestEvent',
+                    'properties' => [
+                        'testTimestamp' => date('c'),
+                        'source' => 'TelemetryService::sendTestTelemetry',
+                    ],
+                ],
+            ],
+        ];
+
+        $payload = json_encode($testEvent);
+
+        try {
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => [
+                        'Content-Type: application/x-json-stream',
+                        'Accept: application/json',
+                    ],
+                    'content' => $payload,
+                    'timeout' => 10, // Longer timeout for testing
+                    'ignore_errors' => true, // Get response even on HTTP errors
+                ],
+            ]);
+
+            $response = file_get_contents(self::$ingestionEndpoint, false, $context);
+            
+            // Get HTTP status from response headers
+            $statusCode = null;
+            if (isset($http_response_header) && is_array($http_response_header)) {
+                foreach ($http_response_header as $header) {
+                    if (preg_match('/^HTTP\/\d\.\d\s+(\d+)/', $header, $matches)) {
+                        $statusCode = (int)$matches[1];
+                        break;
+                    }
+                }
+            }
+
+            $success = $statusCode !== null && $statusCode >= 200 && $statusCode < 300;
+
+            return [
+                'success' => $success,
+                'statusCode' => $statusCode,
+                'response' => $response !== false ? $response : null,
+                'responseHeaders' => $http_response_header ?? [],
+                'error' => $success ? null : "HTTP $statusCode",
+                'endpoint' => self::$ingestionEndpoint,
+                'payload' => $payload,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'statusCode' => null,
+                'response' => null,
+                'error' => $e->getMessage(),
+                'endpoint' => self::$ingestionEndpoint,
+                'payload' => $payload,
+            ];
+        }
+    }
+
+    /**
      * Flush pending telemetry to Application Insights.
      */
     public static function flush(): void

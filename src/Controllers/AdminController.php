@@ -234,4 +234,28 @@ class AdminController
                     : 'Set APPLICATIONINSIGHTS_CONNECTION_STRING in App Settings to enable.'),
         ]);
     }
+
+    /**
+     * POST /api/admin/telemetry-test
+     * Sends a test telemetry event and returns the actual HTTP response.
+     * Use this to debug why telemetry isn't appearing in Application Insights.
+     */
+    public static function telemetryTest(): void
+    {
+        $result = TelemetryService::sendTestTelemetry();
+
+        echo json_encode([
+            'test' => 'TelemetryTestEvent',
+            'success' => $result['success'],
+            'statusCode' => $result['statusCode'],
+            'response' => $result['response'],
+            'responseHeaders' => $result['responseHeaders'] ?? [],
+            'error' => $result['error'],
+            'endpoint' => $result['endpoint'],
+            'payloadSent' => json_decode($result['payload'], true),
+            'help' => $result['success']
+                ? 'Test event sent successfully. Check Application Insights > Events in 2-5 minutes.'
+                : 'Failed to send telemetry. Check error and response for details.',
+        ]);
+    }
 }

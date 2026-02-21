@@ -224,6 +224,10 @@ class Router
             AdminController::telemetryStatus();
             return null;
         }
+        if ($method === 'POST' && $path === '/api/admin/telemetry-test') {
+            AdminController::telemetryTest();
+            return null;
+        }
 
         // 404 — No matching route
         return [

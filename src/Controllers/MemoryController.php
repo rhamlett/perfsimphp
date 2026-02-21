@@ -81,28 +81,38 @@ class MemoryController
 
     /**
      * POST /api/simulations/memory/release
-     * Releases all memory allocations.
+     * Releases all memory allocations, including orphaned ones.
      */
     public static function releaseAll(): void
     {
-        $allocations = MemoryPressureService::getActiveAllocations();
-        $releasedCount = 0;
-        $releasedMb = 0;
-
-        foreach ($allocations as $allocation) {
-            $result = MemoryPressureService::release($allocation['id']);
-            if ($result) {
-                $releasedCount++;
-                $releasedMb += $result['sizeMb'] ?? 0;
-            }
+        $result = MemoryPressureService::releaseAll();
+        
+        $releasedCount = $result['releasedCount'];
+        $releasedMb = $result['releasedMb'];
+        $orphanedFiles = $result['orphanedFiles'];
+        $orphanedApcu = $result['orphanedApcu'];
+        $orphanedTotal = $orphanedFiles + $orphanedApcu;
+        
+        // Build a descriptive message
+        $parts = [];
+        if ($releasedCount > 0) {
+            $parts[] = "{$releasedCount} tracked allocation(s), {$releasedMb}MB";
         }
+        if ($orphanedTotal > 0) {
+            $parts[] = "{$orphanedTotal} orphaned allocation(s)";
+        }
+        
+        $message = count($parts) > 0 
+            ? 'Released ' . implode(' + ', $parts)
+            : 'No memory allocations to release';
 
         echo json_encode([
-            'message' => $releasedCount > 0 
-                ? "Released {$releasedCount} allocation(s), {$releasedMb}MB total" 
-                : 'No active memory allocations to release',
+            'message' => $message,
             'releasedCount' => $releasedCount,
             'releasedMb' => $releasedMb,
+            'orphanedCleaned' => $orphanedTotal,
+            'orphanedFiles' => $orphanedFiles,
+            'orphanedApcu' => $orphanedApcu,
             'totalAllocatedMb' => MemoryPressureService::getTotalAllocatedMb(),
         ]);
     }

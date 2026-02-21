@@ -175,14 +175,124 @@ class MemoryPressureService
     }
 
     /**
-     * Releases all memory allocations.
+     * Releases all memory allocations, including orphaned ones.
+     * 
+     * This is the PRIMARY release method that ensures ALL memory is freed,
+     * even if tracking records were lost (e.g., after App Service restart).
+     * 
+     * @return array{releasedCount: int, releasedMb: int, orphanedFiles: int, orphanedApcu: int}
      */
-    public static function releaseAll(): void
+    public static function releaseAll(): array
     {
+        $releasedCount = 0;
+        $releasedMb = 0;
+        
+        // 1. Release all TRACKED allocations first
         $active = self::getActiveAllocations();
         foreach ($active as $alloc) {
-            self::release($alloc['id']);
+            $result = self::release($alloc['id']);
+            if ($result) {
+                $releasedCount++;
+                $releasedMb += $result['sizeMb'] ?? 0;
+            }
         }
+        
+        // 2. Clean up ORPHANED allocations (files/APCu without tracking records)
+        $orphanedFiles = self::cleanupOrphanedFiles();
+        $orphanedApcu = self::cleanupOrphanedApcu();
+        
+        // 3. Force clear the allocations tracking key (belt and suspenders)
+        SharedStorage::set(self::ALLOCATIONS_KEY, []);
+        
+        // Log the cleanup
+        $orphanedTotal = $orphanedFiles + $orphanedApcu;
+        if ($orphanedTotal > 0) {
+            EventLogService::info(
+                'MEMORY_ORPHANS_CLEANED',
+                "Cleaned up {$orphanedTotal} orphaned allocation(s): {$orphanedFiles} files, {$orphanedApcu} APCu keys",
+                null,
+                'MEMORY_PRESSURE',
+                ['orphanedFiles' => $orphanedFiles, 'orphanedApcu' => $orphanedApcu]
+            );
+        }
+        
+        return [
+            'releasedCount' => $releasedCount,
+            'releasedMb' => $releasedMb,
+            'orphanedFiles' => $orphanedFiles,
+            'orphanedApcu' => $orphanedApcu,
+        ];
+    }
+    
+    /**
+     * Cleans up orphaned memblock files in storage directory.
+     * 
+     * These can accumulate when:
+     * - App Service restarts (APCu tracking cleared, but files persist)
+     * - Unexpected process termination
+     * 
+     * @return int Number of orphaned files deleted
+     */
+    private static function cleanupOrphanedFiles(): int
+    {
+        $storageDir = dirname(__DIR__, 2) . '/storage';
+        $deleted = 0;
+        
+        if (!is_dir($storageDir)) {
+            return 0;
+        }
+        
+        // Find all memblock_*.bin files
+        $files = glob($storageDir . '/memblock_*.bin');
+        if ($files === false) {
+            return 0;
+        }
+        
+        foreach ($files as $file) {
+            if (is_file($file) && unlink($file)) {
+                $deleted++;
+            }
+        }
+        
+        return $deleted;
+    }
+    
+    /**
+     * Cleans up orphaned APCu memory blocks.
+     * 
+     * APCu stores memory in keys like: perfsim_memblock_{id}_{chunk}
+     * This iterates through APCu and deletes all matching keys.
+     * 
+     * @return int Number of orphaned APCu keys deleted
+     */
+    private static function cleanupOrphanedApcu(): int
+    {
+        if (!function_exists('apcu_cache_info') || !function_exists('apcu_delete')) {
+            return 0;
+        }
+        
+        $deleted = 0;
+        
+        try {
+            $info = apcu_cache_info();
+            if (!isset($info['cache_list']) || !is_array($info['cache_list'])) {
+                return 0;
+            }
+            
+            foreach ($info['cache_list'] as $entry) {
+                $key = $entry['info'] ?? $entry['key'] ?? null;
+                if ($key && str_starts_with($key, 'perfsim_memblock_')) {
+                    if (apcu_delete($key)) {
+                        $deleted++;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // APCu may throw exceptions if cache is corrupted
+            // Fail silently — we tried our best
+        }
+        
+        return $deleted;
     }
 
     /**
