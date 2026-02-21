@@ -227,7 +227,7 @@
           <form id="cpu-form">
             <label>
               Duration (s):
-              <input type="number" name="durationSeconds" id="cpu-duration" value="10" min="1" max="300">
+              <input type="number" name="durationSeconds" id="cpu-duration" value="10" min="1">
             </label>
             <label>
               Target Load:
@@ -254,7 +254,7 @@
           <form id="memory-form">
             <label>
               Size (MB):
-              <input type="number" name="sizeMb" id="memory-size" value="512" min="1" max="2000">
+              <input type="number" name="sizeMb" id="memory-size" value="512" min="1">
             </label>
             <div class="btn-group">
               <button type="submit" class="btn-trigger btn-memory">📈 Allocate</button>
@@ -284,11 +284,11 @@
           <form id="eventloop-form">
             <label>
               Block Duration (s):
-              <input type="number" name="durationSeconds" id="blocking-duration" value="5" min="1" max="60">
+              <input type="number" name="durationSeconds" id="blocking-duration" value="5" min="1">
             </label>
             <label>
               Workers to Block:
-              <input type="number" name="concurrentWorkers" id="blocking-worker-count" value="5" min="1" max="20">
+              <input type="number" name="concurrentWorkers" id="blocking-worker-count" value="5" min="1">
             </label>
             <button type="submit" class="btn-trigger btn-eventloop">🧵 Block FPM Workers</button>
           </form>
@@ -330,7 +330,7 @@
           <form id="crash-all-form" class="crash-all-form">
             <label>
               Workers to Crash:
-              <input type="number" name="workerCount" id="crash-worker-count" min="2" max="10" value="5" class="crash-count-input">
+              <input type="number" name="workerCount" id="crash-worker-count" min="2" value="5" class="crash-count-input">
             </label>
             <button type="submit" class="btn-danger btn-crash-all">💥💥 Crash Multiple Workers</button>
           </form>

@@ -94,8 +94,8 @@ class Config
     /** Default concurrent workers to block (5 is safe for most FPM pools) */
     public const DEFAULT_BLOCKING_CONCURRENT_WORKERS = 5;
 
-    /** Maximum concurrent workers to block (prevents exhausting entire FPM pool) */
-    public const MAX_BLOCKING_CONCURRENT_WORKERS = 20;
+    /** Maximum concurrent workers to block (no hard limit - let users exhaust the pool if desired) */
+    public const MAX_BLOCKING_CONCURRENT_WORKERS = 1000;
 
     // =========================================================================
     // VALIDATION LIMITS
