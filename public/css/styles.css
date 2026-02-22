@@ -10,14 +10,14 @@
    background colors to match the target runtime's branding.
    -------------------------------------------------------------------------- */
 :root {
-  --color-primary: #4F5B93;
-  --color-primary-dark: #3C4570;
+  --color-primary: #5C5598;
+  --color-primary-dark: #483F75;
   --color-success: #107c10;
   --color-warning: #ffb900;
   --color-danger: #d13438;
   --color-secondary: #6c757d;
   
-  --color-bg: #EDF0F8;
+  --color-bg: #F0EDF9;
   --color-card: #ffffff;
   --color-text: #323130;
   --color-text-muted: #605e5c;
@@ -27,9 +27,11 @@
   --color-eventloop: #8764b8;
   --color-latency: #ffb900;
   
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
-  --shadow-lg: 0 10px 20px rgba(0,0,0,0.15);
+  --shadow-sm: 0 2px 6px rgba(0,0,0,0.15);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
+  --shadow-lg: 0 10px 24px rgba(0,0,0,0.2);
+  
+  --border-card: 1px solid #d0d0d0;
   
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -69,11 +71,11 @@ section[id] {
 /* --------------------------------------------------------------------------
    Header
    --------------------------------------------------------------------------
-   PHP branding uses a purple header (#4F5B93) matching the PHP elephant color.
+   PHP branding uses a purple header (#5C5598) matching the PHP elephant color.
    When porting, change these background colors to match the target runtime.
    -------------------------------------------------------------------------- */
 header {
-  background: #4F5B93;
+  background: #5C5598;
   color: white;
   padding: 0.75rem 1.5rem;
   display: flex;
@@ -99,7 +101,7 @@ header h1 {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  background: #6B75A8;
+  background: #7A6FAD;
   color: white;
   padding: 0.35rem 1rem;
   border-radius: 20px;
@@ -120,20 +122,20 @@ header nav {
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
-  background: #5C68A0;
+  background: #6B62A5;
   transition: background var(--transition-fast);
 }
 
 .nav-link:hover {
-  background: #6B75A8;
+  background: #7A6FAD;
 }
 
 .nav-link.active {
-  background: #6B75A8;
+  background: #7A6FAD;
 }
 
 .btn-panel-toggle {
-  background: #6B75A8;
+  background: #7A6FAD;
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -146,7 +148,7 @@ header nav {
 }
 
 .btn-panel-toggle:hover {
-  background: #7B85B8;
+  background: #8A7FBD;
 }
 
 .btn-panel-toggle.active {
@@ -223,10 +225,10 @@ header nav {
 
 @keyframes bars-highlight {
   0% {
-    background: #B0B8E8;
+    background: #BFB2EC;
   }
   70% {
-    background: #B0B8E8;
+    background: #BFB2EC;
   }
   100% {
     background: white;
@@ -258,7 +260,7 @@ header nav {
   left: 0;
   width: 280px;
   height: 100vh;
-  background: #3C4570;
+  background: #483F75;
   z-index: 300;
   transform: translateX(-100%);
   transition: transform var(--transition-normal);
@@ -322,7 +324,7 @@ header nav {
 
 .sidebar-nav-item:hover {
   background: rgba(255,255,255,0.1);
-  border-left-color: #B0B8E8;
+  border-left-color: #BFB2EC;
 }
 
 .sidebar-nav-item.active {
@@ -480,6 +482,7 @@ section h2, section h3 {
   flex-direction: column;
   box-shadow: var(--shadow-sm);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  border: var(--border-card);
   border-left: 4px solid transparent;
   overflow: hidden;
 }
@@ -584,6 +587,7 @@ section h2, section h3 {
   border-radius: var(--radius-md);
   padding: 1rem;
   box-shadow: var(--shadow-sm);
+  border: var(--border-card);
 }
 
 .chart-card h3 {
@@ -624,6 +628,7 @@ section h2, section h3 {
   border-radius: var(--radius-md);
   padding: 1rem;
   box-shadow: var(--shadow-sm);
+  border: var(--border-card);
 }
 
 .latency-card h3 {
@@ -693,12 +698,8 @@ section h2, section h3 {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
-  border: 2px solid transparent;
+  border: 2px solid var(--color-primary);
   transition: border-color var(--transition-fast);
-}
-
-.latency-stat:first-child {
-  border-color: var(--color-primary);
 }
 
 .stat-label {
@@ -953,6 +954,7 @@ section h2, section h3 {
   border-radius: var(--radius-md);
   padding: 1rem;
   box-shadow: var(--shadow-sm);
+  border: var(--border-card);
 }
 
 .active-card h3 {
