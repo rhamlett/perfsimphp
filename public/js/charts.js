@@ -1,51 +1,80 @@
 /**
  * =============================================================================
- * CHARTS.JS INTEGRATION — Real-Time Metric Visualization
+ * CHARTS — Real-Time Metric Visualization with Chart.js
  * =============================================================================
  *
- * PURPOSE:
- *   Manages three real-time Chart.js charts on the dashboard:
- *   1. CPU/Memory chart — Combined CPU%, memory MB (60-second window)
- *   2. PHP Worker chart — FPM worker response time in milliseconds (60-second window)
- *   3. Latency chart — HTTP probe latency from browser XHR (600 data points,
- *      ~60 seconds at 100ms probe interval)
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This charting module must provide:
+ *   1. CPU/Memory trend chart — Combined CPU%, memory MB over 60-second window
+ *   2. Worker Response chart — Backend worker response time in ms (60s window)
+ *   3. Latency chart — HTTP probe latency, high-resolution (~600 points)
+ *   4. Color-coded severity indicators for latency values
+ *   5. Rolling statistics: current, average, max, P99 latency
+ *   6. Server responsiveness status (consecutive failures, recovery time)
  *
- * DATA FLOW:
- *   polling-client.js polls REST endpoints → calls onMetricsUpdate()
- *   and onProbeLatency() → this file updates charts.
+ * LATENCY SEVERITY THRESHOLDS:
+ *   These thresholds apply regardless of implementation:
+ *   - Green (0-200ms): Healthy response times
+ *   - Yellow (200ms-1s): Degraded performance
+ *   - Orange (1s-30s): Severe degradation
+ *   - Red (30s+): Critical / near-timeout
+ *   Use smooth interpolation between bands, not hard color boundaries.
  *
- * LATENCY CHART FEATURES:
- *   - Color-coded gradient fill based on latency severity:
- *     * Green (0-200ms): Healthy response times
- *     * Yellow (200ms-1s): Degraded performance
- *     * Orange (1s-30s): Severe degradation
- *     * Red (30s+): Critical / near-timeout
- *   - Smooth color interpolation between thresholds (not hard bands)
- *   - Dynamic Y-axis scaling based on current maximum
+ * DATA INTERFACE:
+ *   Charts receive data via global callback functions:
+ *   - onMetricsUpdate(metrics) — CPU%, memory MB, worker response time
+ *   - onProbeLatency(data) — Latency measurement with timestamp
+ *   See polling-client.js for how these are called.
  *
- * LATENCY STATISTICS:
- *   - Time-based rolling window (last 60 seconds)
- *   - Calculates: current, average, max, P99 from rolling window
+ * REAL-TIME CHART REQUIREMENTS:
+ *   - Disable all animations (animation: false)
+ *   - Use 'none' update mode when pushing data
+ *   - Keep fixed time window (shift oldest data out as new arrives)
+ *   - Y-axis should auto-scale based on visible data range
  *
- * SERVER RESPONSIVENESS MONITORING:
- *   - Tracks consecutive probe failures to detect unresponsive state
- *   - Shows probe history as colored dots (green=ok, yellow=slow, red=fail)
- *   - Reports recovery time when server becomes responsive again
+ * HOW IT WORKS (this implementation):
+ *   - Uses Chart.js library for rendering
+ *   - Three chart instances stored in global variables
+ *   - Each chart has fixed-length data arrays that shift on update
+ *   - Custom gradient fills computed based on current data values
  *
- * CHART.JS CONFIGURATION:
- *   - animation: false (real-time charts must not animate)
- *   - Update mode: 'none' (skip animation on data push)
- *   - Custom tooltip formatters for each chart type
- *   - Responsive but not aspect-ratio-maintaining (fills container)
+ * PORTING NOTES (frontend framework alternatives):
+ *   This file is frontend JavaScript and stays JS regardless of backend.
+ *   When porting to a frontend framework, use appropriate wrappers:
  *
- * PORTING NOTES:
- *   This file is FRONTEND JavaScript — it stays JS regardless of backend.
- *   The key difference from PerfSimNode:
- *   - "Event Loop Lag" replaced with "Worker Response" metric
- *   - Latency probes come from browser XHR (not a sidecar process)
- *   - No timestamp backfill needed (no queued IPC messages)
- *   When porting to another frontend framework (React, Vue, Angular),
- *   use the appropriate Chart.js wrapper library.
+ *   React:
+ *     - react-chartjs-2 — Chart.js wrapper for React
+ *     - recharts — Popular React charting alternative
+ *     - victory — Animated React charts
+ *     - Use hooks (useState/useEffect) for data management
+ *
+ *   Vue:
+ *     - vue-chartjs — Chart.js wrapper for Vue
+ *     - vue-echarts — ECharts wrapper (better for large datasets)
+ *
+ *   Angular:
+ *     - ng2-charts — Chart.js wrapper for Angular
+ *     - ngx-echarts — ECharts wrapper
+ *
+ *   Svelte:
+ *     - chart.js native works well with Svelte stores
+ *     - svelte-chartjs — Wrapper available if preferred
+ *
+ *   Mobile (React Native, Flutter):
+ *     - react-native-chart-kit, victory-native (React Native)
+ *     - fl_chart, syncfusion_flutter_charts (Flutter)
+ *
+ *   Key adaptation: Replace global callbacks with:
+ *     - React: Context + useContext, or Redux/Zustand
+ *     - Vue: Provide/Inject, or Pinia/Vuex
+ *     - Angular: Services with BehaviorSubject
+ *     - Svelte: Writable stores
+ *
+ * CHART.JS CONFIGURATION NOTES:
+ *   - animation: false (mandatory for real-time)
+ *   - maintainAspectRatio: false (fill container)
+ *   - Custom tooltip formatters to show units
+ *   - Responsive: true for container resizing
  */
 
 /**

@@ -4,25 +4,68 @@
  * METRICS SERVICE — Real-Time System Metrics Collection
  * =============================================================================
  *
- * PURPOSE:
- *   Collects system metrics (CPU, memory, process stats) and provides them
- *   as a unified snapshot. Called by the /api/metrics endpoint each time
- *   the dashboard polls for updates.
- *
- * PHP vs NODE.JS DIFFERENCES:
- *   - PHP has no persistent process; each request computes metrics fresh.
- *   - CPU usage is measured via sys_getloadavg() (system-wide load average)
- *     rather than per-tick deltas like Node.js os.cpus().
- *   - There is no "event loop" in PHP, so event loop lag metrics are N/A.
- *     Instead we report PHP-FPM worker pool utilization via process count.
- *   - Memory is measured via memory_get_usage() and memory_get_peak_usage().
- *   - The "heartbeat lag" concept is replaced by client-side XHR latency
- *     probing (see sse-client.js) which measures PHP-FPM response time.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must provide real-time system metrics including:
+ *   1. CPU usage (percentage, should correlate with CPU stress simulation)
+ *   2. Memory usage (current, peak, total available)
+ *   3. Process information (PID, uptime, runtime version)
+ *   4. Active simulation status (which simulations are running)
+ *   5. Metrics must update frequently (4x/sec for responsive charts)
  *
  * METRICS COLLECTED:
- *   1. CPU     — sys_getloadavg() for 1/5/15 min load averages
- *   2. Memory  — PHP memory_get_usage(), memory_get_peak_usage(), system total
- *   3. Process — PID, uptime estimate, PHP version
+ *   - CPU: Real-time percentage (not just load average)
+ *   - Memory: Process RSS, simulated allocations, system total
+ *   - Process: PID, uptime, PHP/runtime version
+ *   - Simulations: Active CPU/Memory/Blocking simulations
+ *
+ * HOW IT WORKS (this implementation):
+ *   - Each request computes metrics fresh (PHP has no persistent state)
+ *   - CPU is measured via /proc/stat delta sampling (stored in APCu)
+ *   - Memory combines PHP memory_get_usage() + APCu allocations
+ *   - Process info from getmypid(), PHP_VERSION, etc.
+ *
+ * PORTING NOTES:
+ *   CPU Measurement varies significantly by runtime:
+ *
+ *   Node.js:
+ *     - os.cpus() gives per-core times (user, nice, sys, idle)
+ *     - Calculate delta between intervals: (total - idle) / total
+ *     - Single persistent process makes this straightforward
+ *
+ *   Java:
+ *     - ManagementFactory.getOperatingSystemMXBean()
+ *     - getSystemCpuLoad() returns system-wide CPU (0.0-1.0)
+ *     - getProcessCpuLoad() for JVM-only CPU usage
+ *
+ *   Python:
+ *     - psutil.cpu_percent(interval=None) for system CPU
+ *     - psutil.Process().cpu_percent() for process CPU
+ *     - Requires psutil package (pip install psutil)
+ *
+ *   .NET:
+ *     - System.Diagnostics.Process.GetCurrentProcess()
+ *     - PerformanceCounter for CPU if on Windows
+ *     - /proc/stat parsing if on Linux
+ *
+ *   Ruby:
+ *     - Sys::CPU.load_avg or parse /proc/stat
+ *     - Process.times for process CPU time
+ *     - Gems: sys-cpu, vmstat
+ *
+ *   Memory Measurement:
+ *
+ *   Node.js: process.memoryUsage().heapUsed / rss
+ *   Java: Runtime.getRuntime().totalMemory() - freeMemory()
+ *   Python: psutil.Process().memory_info().rss
+ *   .NET: Process.WorkingSet64
+ *   Ruby: `ps -o rss= -p #{Process.pid}`.to_i * 1024
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - CPU must reflect actual usage, not just load average
+ *   - /proc/stat only exists on Linux (Azure App Service)
+ *   - Memory should distinguish process RSS from allocations
+ *   - Metrics endpoint must be fast (<50ms) for 4x/sec polling
+ *   - Consider caching expensive operations (1-second TTL)
  *
  * @module src/Services/MetricsService.php
  */

@@ -4,28 +4,61 @@
  * MEMORY PRESSURE SERVICE — Memory Allocation Simulation
  * =============================================================================
  *
- * PURPOSE:
- *   Simulates memory pressure by allocating and retaining data in shared
- *   storage (APCu or temp files). Memory is held until explicitly released
- *   by the user via the DELETE endpoint.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must simulate memory pressure/leaks that:
+ *   1. Is visible in system monitoring tools (Azure Monitor, process stats)
+ *   2. Memory stays allocated until explicitly released (not garbage collected)
+ *   3. Multiple allocations can stack (simulate gradual leak)
+ *   4. Total allocated memory is trackable and reportable
+ *   5. All memory can be released on demand via API
  *
- * PHP vs NODE.JS DIFFERENCES:
- *   - Node.js allocates objects on the V8 heap within a persistent process.
- *   - PHP-FPM workers are request-scoped; process memory is released when
- *     the request completes. For persistent memory pressure, we use APCu
- *     (shared memory segment) or temp files.
- *   - APCu memory is shared across ALL PHP-FPM workers, so allocations
- *     affect the entire application pool.
- *   - When APCu is unavailable, large temp files simulate disk-based
- *     memory pressure (OS page cache / mmap).
+ * HOW IT WORKS (this implementation):
+ *   1. User requests allocation of N megabytes
+ *   2. Data is stored in APCu (shared memory) or temp files
+ *   3. Memory persists across HTTP requests until release is called
+ *   4. Dashboard shows total allocated memory in real-time
  *
- * ALLOCATION STRATEGY:
- *   1. APCu available: Store string blobs in APCu shared memory.
- *      This directly consumes the APCu shared memory segment (apc.shm_size).
- *      Visible in APCu metrics and overall PHP-FPM memory.
- *   2. APCu unavailable: Create temp files filled with random data.
- *      The OS page cache makes these consume physical memory.
- *      Tracked via SharedStorage (file-based).
+ * PHP-SPECIFIC CHALLENGES:
+ *   PHP-FPM workers are request-scoped; process memory is released when
+ *   the request completes. For persistent memory pressure, we use APCu
+ *   (shared memory segment) or temp files. APCu memory is shared across
+ *   ALL PHP-FPM workers, so allocations affect the entire application.
+ *
+ * PORTING NOTES:
+ *   The implementation varies significantly by runtime memory model:
+ *
+ *   Node.js:
+ *     - Simplest: just hold arrays/buffers in global variables
+ *     - V8 heap is persistent across requests in the same process
+ *     - Use Buffer.alloc() for precise byte allocation
+ *     - GC won't collect while references are held
+ *
+ *   Java (Spring Boot):
+ *     - Use static collections or singleton beans to hold data
+ *     - byte[] arrays for precise allocation
+ *     - Consider off-heap (DirectByteBuffer) for large allocations
+ *     - JVM heap is persistent across requests
+ *
+ *   Python (Flask/FastAPI):
+ *     - Global variables persist in the process
+ *     - Use bytearray for precise allocation
+ *     - With gunicorn/uwsgi workers, each worker has separate memory
+ *
+ *   .NET (ASP.NET Core):
+ *     - Use static fields or singleton services
+ *     - byte[] arrays for allocation
+ *     - Process memory is persistent
+ *
+ *   Ruby (Rails):
+ *     - Global variables or class instance variables
+ *     - Strings or arrays for allocation
+ *     - Process memory is persistent per worker
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Allocations must not be garbage collected while "active"
+ *   - Track allocation IDs to enable individual or bulk release
+ *   - Monitor/report actual memory usage vs requested
+ *   - Handle allocation failures gracefully (container limits)
  *
  * @module src/Services/MemoryPressureService.php
  */

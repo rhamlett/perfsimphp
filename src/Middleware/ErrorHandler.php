@@ -4,17 +4,64 @@
  * GLOBAL ERROR HANDLER MIDDLEWARE
  * =============================================================================
  *
- * PURPOSE:
- *   Catches ALL unhandled errors and exceptions, transforming them into
- *   consistent JSON error responses. Equivalent to Express's global error
- *   handler middleware.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   The application must have centralized error handling that:
+ *   1. Catches ALL unhandled errors and exceptions
+ *   2. Returns consistent JSON error responses
+ *   3. Uses appropriate HTTP status codes (400, 404, 500)
+ *   4. Hides stack traces in production
+ *   5. Logs all errors for debugging
  *
- * ERROR HIERARCHY:
- *   AppException (base)       → Custom application error with HTTP status code
- *   ├─ ValidationException    → 400 Bad Request (invalid user input)
- *   └─ NotFoundException      → 404 Not Found (resource doesn't exist)
- *   JsonException             → 400 Bad Request (malformed JSON body)
- *   Exception (any other)     → 500 Internal Server Error
+ * ERROR RESPONSE FORMAT:
+ *   {
+ *     "error": "Error Type Name",
+ *     "message": "Human-readable error message",
+ *     "details": { ... } // Optional, for validation errors
+ *   }
+ *
+ * ERROR TYPES:
+ *   ValidationException    → 400 Bad Request (invalid user input)
+ *   NotFoundException      → 404 Not Found (resource doesn't exist)
+ *   JsonException          → 400 Bad Request (malformed JSON body)
+ *   Any other exception    → 500 Internal Server Error
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js (Express):
+ *     app.use((err, req, res, next) => {
+ *       const status = err.statusCode || 500;
+ *       res.status(status).json({ error: err.name, message: err.message });
+ *     });
+ *     - Express requires error middleware to have 4 parameters
+ *     - Use async-handler wrapper for async route handlers
+ *
+ *   Java (Spring Boot):
+ *     @ControllerAdvice
+ *     public class GlobalExceptionHandler {
+ *       @ExceptionHandler(ValidationException.class)
+ *       @ResponseStatus(HttpStatus.BAD_REQUEST)
+ *       public ErrorResponse handleValidation(ValidationException e) {...}
+ *     }
+ *     - Spring's @ExceptionHandler annotation
+ *     - Return ResponseEntity for custom status codes
+ *
+ *   Python (Flask):
+ *     @app.errorhandler(Exception)
+ *     def handle_exception(e):
+ *       return jsonify(error=type(e).__name__, message=str(e)), 500
+ *     - Register handlers per exception type
+ *     - FastAPI: use exception_handlers dict
+ *
+ *   .NET (ASP.NET Core):
+ *     app.UseExceptionHandler(errorApp => { ... });
+ *     - Or custom middleware with try/catch
+ *     - ProblemDetails for RFC 7807 compliance
+ *
+ *   Ruby (Rails):
+ *     rescue_from StandardError do |e|
+ *       render json: { error: e.class.name, message: e.message }, status: 500
+ *     end
+ *     - In ApplicationController
  *
  * @module src/Middleware/ErrorHandler.php
  */

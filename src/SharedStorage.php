@@ -4,22 +4,65 @@
  * SHARED STORAGE — Cross-Request State Management
  * =============================================================================
  *
- * PURPOSE:
- *   Provides a shared storage mechanism for state that must persist across
- *   PHP-FPM requests. Uses APCu when available (fast shared memory between
- *   workers) and falls back to file-based storage with file locking.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must provide persistent state storage that:
+ *   1. Persists data across HTTP requests
+ *   2. Is accessible from all request handlers
+ *   3. Supports atomic read-modify-write operations
+ *   4. Handles concurrent access safely
+ *   5. Provides optional TTL (time-to-live) for entries
  *
- * WHY THIS IS NEEDED:
+ * WHY THIS IS NEEDED (PHP-specific):
  *   Unlike Node.js (single persistent process), PHP-FPM spawns a new worker
  *   for each request. In-memory variables are lost between requests. To track
  *   active simulations, event logs, and CPU worker PIDs, we need external
  *   shared storage.
  *
- * STORAGE BACKENDS:
+ * HOW IT WORKS (this implementation):
+ *   Storage Backends (auto-detected):
  *   1. APCu (preferred): In-process shared memory. Fast, atomic operations.
- *      Available on most PHP installations including Azure blessed image.
- *   2. File-based (fallback): Uses JSON files with flock() for concurrency.
- *      Works everywhere but slower with potential lock contention.
+ *   2. File-based (fallback): JSON files with flock() for concurrency.
+ *
+ * PORTING NOTES:
+ *   Most runtimes have persistent process memory, making this simpler:
+ *
+ *   Node.js:
+ *     - NOT NEEDED: global variables persist across requests
+ *     - Just use: const storage = new Map();
+ *     - For clustering: Redis or shared Map
+ *
+ *   Java (Spring Boot):
+ *     - NOT NEEDED: @Service singletons persist across requests
+ *     - Use ConcurrentHashMap for thread-safe storage
+ *     - For scaling: Redis or Hazelcast
+ *
+ *   Python (Flask/FastAPI):
+ *     - Partially needed: depends on server (gunicorn workers)
+ *     - Global dict works for single-process
+ *     - For multi-worker: Redis or shared memory
+ *
+ *   .NET (ASP.NET Core):
+ *     - NOT NEEDED: singleton services persist across requests
+ *     - Use ConcurrentDictionary or IMemoryCache
+ *     - For scaling: Redis or IDistributedCache
+ *
+ *   Ruby (Rails):
+ *     - Partially needed: depends on server (Puma workers)
+ *     - Class instance variables work for single-process
+ *     - For multi-worker: Redis
+ *
+ * OPERATIONS REQUIRED:
+ *   get(key, default): Retrieve value or default
+ *   set(key, value, ttl?): Store value with optional TTL
+ *   delete(key): Remove value
+ *   modify(key, callback, default): Atomic read-modify-write
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Thread safety for concurrent requests (if applicable)
+ *   - Atomic operations for counters and lists
+ *   - TTL support for automatic cleanup
+ *   - Consider what happens during deployments/restarts
+ *   - For production scaling, consider Redis/Memcached
  *
  * @module src/SharedStorage.php
  */

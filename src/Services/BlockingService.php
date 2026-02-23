@@ -4,20 +4,62 @@
  * BLOCKING SERVICE — Request Thread Blocking Simulation
  * =============================================================================
  *
- * PURPOSE:
- *   Simulates the effect of synchronous/blocking operations (sync-over-async
- *   antipattern) on request latency. This demonstrates what happens when code
- *   performs blocking I/O operations like:
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must demonstrate the impact of blocking operations that:
+ *   1. Causes visible latency spike in HTTP response times
+ *   2. Demonstrates worker/thread pool exhaustion under load
+ *   3. Shows what happens when sync-over-async antipatterns occur
+ *   4. Can block multiple workers simultaneously to amplify effect
+ *   5. Self-recovers after configured duration
+ *
+ * WHAT THIS SIMULATES:
+ *   Real-world scenarios that cause this problem:
  *   - Synchronous HTTP calls (file_get_contents to external APIs)
  *   - Blocking database queries without connection pooling
  *   - Heavy computation on the request thread
+ *   - Synchronous file I/O in async contexts
  *
- * HOW IT WORKS:
- *   When blocking is triggered:
- *   1. A time window is set (current time + duration)
- *   2. All probe requests during this window perform CPU-intensive work
- *   3. This causes visible latency spike in the dashboard charts
- *   4. Demonstrates how sync-over-async patterns degrade system performance
+ * HOW IT WORKS (this implementation):
+ *   1. User triggers blocking with duration + worker count
+ *   2. A time window is set (current time + duration) in shared storage
+ *   3. The server spawns concurrent curl requests to itself
+ *   4. Each request performs CPU-intensive work, blocking its FPM worker
+ *   5. All probe requests during this window show increased latency
+ *
+ * PORTING NOTES:
+ *   The blocking mechanism differs significantly by runtime:
+ *
+ *   Node.js (Event Loop Blocking):
+ *     - Block the single-threaded event loop with sync operations
+ *     - while(Date.now() < endTime) { heavyComputation(); }
+ *     - This blocks ALL requests, not just some workers
+ *     - More dramatic effect than PHP's worker-based blocking
+ *
+ *   Java (Thread Pool Blocking):
+ *     - Block Tomcat/Jetty worker threads with Thread.sleep() or computation
+ *     - Use CountDownLatch or synchronized blocks to hold threads
+ *     - Similar worker-pool exhaustion model to PHP-FPM
+ *
+ *   Python (Worker Blocking):
+ *     - With gunicorn: block workers with time.sleep() or computation
+ *     - With asyncio: block event loop with sync operations
+ *     - GIL means only one thread executes Python at a time
+ *
+ *   .NET (Thread Pool Blocking):
+ *     - Block ThreadPool threads with Thread.Sleep() or computation
+ *     - ASP.NET Core has limited request threads
+ *     - Task.Run with blocking operations consumes thread pool
+ *
+ *   Ruby (Worker Blocking):
+ *     - Block Puma/Unicorn workers with sleep or computation
+ *     - Similar worker-pool model to PHP-FPM
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - The blocking MUST affect request handling (not background threads)
+ *   - Dashboard should show latency increase during blocking
+ *   - Recovery should be automatic after duration expires
+ *   - Consider what "concurrent workers" means in each runtime
+ *     (PHP: FPM workers, Node: doesn't apply, Java: thread pool size)
  *
  * @module src/Services/BlockingService.php
  */

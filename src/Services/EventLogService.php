@@ -4,13 +4,64 @@
  * EVENT LOG SERVICE — Application Event Ring Buffer
  * =============================================================================
  *
- * PURPOSE:
- *   Central logging service for simulation lifecycle events and system events.
- *   Maintains a bounded ring buffer in shared storage. Events are written to
- *   shared storage and also logged to PHP's error_log for server log visibility.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must provide a real-time event log that:
+ *   1. Records simulation lifecycle events (started, stopped, completed)
+ *   2. Records system events (warnings, errors, crashes)
+ *   3. Maintains bounded history (ring buffer, ~100 entries)
+ *   4. Supports polling for new events (client checks periodically)
+ *   5. Assigns level (info, warn, error, success) for UI coloring
  *
- * RING BUFFER:
- *   Fixed-size (default 100 entries). When full, oldest entries are evicted.
+ * EVENT STRUCTURE:
+ *   Each event should contain:
+ *   - id: Unique identifier (UUID)
+ *   - seq: Monotonic sequence number (for change detection)
+ *   - timestamp: ISO 8601 format
+ *   - level: info | warn | error | success
+ *   - message: Human-readable description
+ *   - event: Event type code (SIMULATION_STARTED, CRASH_WARNING, etc.)
+ *   - simulationId: Reference to associated simulation (optional)
+ *   - simulationType: Type of simulation (CPU_STRESS, MEMORY_PRESSURE, etc.)
+ *
+ * HOW IT WORKS (this implementation):
+ *   - Events stored in APCu/file-based SharedStorage
+ *   - Ring buffer evicts oldest when full
+ *   - Sequence number increments monotonically for change detection
+ *   - Also logs to PHP error_log for server log visibility
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js:
+ *     - Simple in-memory array (process is persistent)
+ *     - Use EventEmitter for real-time push via WebSocket
+ *     - No need for shared storage between requests
+ *
+ *   Java (Spring Boot):
+ *     - ConcurrentLinkedDeque or CircularFifoQueue (Apache Commons)
+ *     - @Service singleton holds events in memory
+ *     - WebSocket/SSE for real-time push
+ *
+ *   Python (Flask/FastAPI):
+ *     - collections.deque(maxlen=100) for bounded buffer
+ *     - Global variable in application scope
+ *     - Redis for multi-worker scenarios
+ *
+ *   .NET (ASP.NET Core):
+ *     - Singleton service with ConcurrentQueue<T>
+ *     - IMemoryCache for shared state
+ *     - SignalR for real-time push
+ *
+ *   Ruby (Rails):
+ *     - Global array with mutex for thread safety
+ *     - Redis for multi-process scenarios
+ *     - ActionCable for WebSocket push
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Events must persist across HTTP requests
+ *   - Sequence numbers enable efficient change detection
+ *   - Consider WebSocket/SSE for push instead of polling
+ *   - Ring buffer prevents unbounded memory growth
+ *   - Include worker/process ID for debugging
  *
  * @module src/Services/EventLogService.php
  */

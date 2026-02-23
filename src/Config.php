@@ -4,16 +4,62 @@
  * APPLICATION CONFIGURATION
  * =============================================================================
  *
- * PURPOSE:
- *   Centralizes all configurable values. Every tunable parameter is defined
- *   here with sensible defaults that can be overridden via environment variables.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   The application must have centralized configuration for:
+ *   1. Server port (default: 8080 for Azure App Service)
+ *   2. Simulation limits (max duration, max memory allocation)
+ *   3. Default simulation parameters
+ *   4. Event log buffer size
+ *   5. All values should be overridable via environment variables
  *
- * ENVIRONMENT VARIABLES:
- *   - PORT                          → HTTP server port (Azure App Service sets this to 8080)
- *   - METRICS_INTERVAL_MS           → How often the client polls for metrics
- *   - MAX_SIMULATION_DURATION_SECONDS → Upper limit for timed simulations
- *   - MAX_MEMORY_ALLOCATION_MB      → Upper limit for single memory allocation
- *   - EVENT_LOG_MAX_ENTRIES         → Ring buffer size for event log
+ * CONFIGURATION VALUES:
+ *   Server:
+ *     PORT                         → HTTP server port (default: 8080)
+ *     METRICS_INTERVAL_MS          → How often metrics are polled (default: 500)
+ *
+ *   Limits:
+ *     MAX_SIMULATION_DURATION_SECONDS → Max duration for timed simulations (default: 86400)
+ *     MAX_MEMORY_ALLOCATION_MB        → Max single memory allocation (default: 65536)
+ *     EVENT_LOG_MAX_ENTRIES           → Ring buffer size (default: 100)
+ *
+ *   Defaults:
+ *     DEFAULT_CPU_LEVEL              → Default CPU stress level ('moderate')
+ *     DEFAULT_CPU_DURATION_SECONDS   → Default CPU stress duration (30)
+ *     DEFAULT_MEMORY_SIZE_MB         → Default memory allocation (100)
+ *     DEFAULT_BLOCKING_DURATION_SECONDS → Default blocking duration (5)
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js:
+ *     - Use process.env.PORT ?? 8080
+ *     - Consider dotenv for .env file support
+ *     - Export as module or use config library (convict, node-config)
+ *
+ *   Java (Spring Boot):
+ *     - Use @Value("${PORT:8080}") with application.properties
+ *     - Or @ConfigurationProperties for typed config
+ *     - Spring profiles for environment-specific values
+ *
+ *   Python (Flask/FastAPI):
+ *     - os.environ.get('PORT', 8080)
+ *     - Consider python-dotenv for .env support
+ *     - Pydantic Settings for typed config (FastAPI)
+ *
+ *   .NET (ASP.NET Core):
+ *     - IConfiguration with appsettings.json
+ *     - Environment.GetEnvironmentVariable("PORT") ?? "8080"
+ *     - Options pattern for typed config
+ *
+ *   Ruby (Rails):
+ *     - ENV.fetch('PORT', 8080)
+ *     - Rails credentials or dotenv gem
+ *     - config/settings.yml with config gem
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Environment variables are the standard for cloud platforms
+ *   - Default values should be sensible for development
+ *   - Consider Azure App Service configuration blade
+ *   - Build timestamp helps identify deployed version
  *
  * @module src/Config.php
  */

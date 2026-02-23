@@ -1,39 +1,69 @@
 /**
  * =============================================================================
- * POLLING CLIENT — AJAX Polling Connection Manager (replaces Socket.IO)
+ * POLLING CLIENT — AJAX Polling Connection Manager
  * =============================================================================
  *
- * PURPOSE:
- *   Manages real-time data updates from the PHP backend via AJAX polling.
- *   PHP-FPM does not support persistent WebSocket connections natively,
- *   so this client polls REST endpoints at regular intervals:
- *   - /api/metrics                → System metrics updates (~250ms)
- *   - /api/admin/events           → Event log entries (~2s)
- *   - /api/metrics/internal-probes → Batch latency measurement (~1s)
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This client module must:
+ *   1. Fetch metrics from server at regular intervals (~250ms)
+ *   2. Fetch event log updates at regular intervals (~2s)
+ *   3. Measure request latency for responsiveness charts
+ *   4. Handle connection failures with retry/backoff
+ *   5. Provide callbacks for data updates to other modules
  *
- *   LATENCY PROBING STRATEGY:
- *   To reduce AppLens traffic, latency probes use internal batch probing.
- *   The server performs 10 curl requests to localhost:8080 internally at
- *   100ms intervals (bypasses Azure's stamp frontend). Results are dispatched
- *   to the chart at 100ms intervals for smooth visualization.
- *   Result: 10 latency samples/sec with only 1 external request/sec to AppLens.
- *
- * SCRIPT LOADING ORDER:
- *   This file must be loaded BEFORE dashboard.js and charts.js in index.html.
- *   It defines callback hooks (onSocketConnected, onMetricsUpdate, etc.) that
- *   those files implement. This is a simple dependency injection via globals.
+ * ENDPOINTS POLLED:
+ *   /api/metrics             → System metrics (CPU, memory, simulations)
+ *   /api/admin/events        → Event log entries
+ *   /api/metrics/internal-probe → Batch latency probing (10 samples/sec)
  *
  * CONNECTION STRATEGY:
- *   - Uses fetch() for all polling (metrics, events, batch probes)
+ *   - Uses fetch() for all polling
  *   - Detects connection loss via failed requests
- *   - Auto-reconnects by resuming polling after failures
+ *   - Auto-reconnects with exponential backoff
+ *   - Tracks consecutive failures for status display
+ *
+ * HOW IT WORKS (this implementation):
+ *   - AJAX polling because PHP-FPM doesn't support WebSocket natively
+ *   - Internal batch probing: 1 request/sec, server does 10 internal probes
+ *   - Results dispatched at 100ms intervals for smooth visualization
  *
  * PORTING NOTES:
- *   This file replaces socket-client.js from PerfSimNode. The callback
- *   interface (onSocketConnected, onMetricsUpdate, onEventUpdate, etc.)
- *   is preserved so dashboard.js and charts.js work without changes.
- *   When porting to a backend that supports WebSockets (Java, .NET, Python),
- *   replace this file with a WebSocket/SSE client implementation.
+ *   This file implements data fetching via polling. When the backend
+ *   supports real-time push, replace with WebSocket or SSE:
+ *
+ *   WebSocket (Node.js, Java, .NET):
+ *     const ws = new WebSocket('wss://host/ws');
+ *     ws.onmessage = (event) => {
+ *       const data = JSON.parse(event.data);
+ *       if (data.type === 'metrics') onMetricsUpdate(data.metrics);
+ *       if (data.type === 'event') onEventUpdate(data.event);
+ *     };
+ *
+ *   Server-Sent Events (most backends):
+ *     const source = new EventSource('/api/events');
+ *     source.onmessage = (event) => {
+ *       onMetricsUpdate(JSON.parse(event.data));
+ *     };
+ *
+ *   Socket.IO (Node.js):
+ *     const socket = io();
+ *     socket.on('metrics', onMetricsUpdate);
+ *     socket.on('event', onEventUpdate);
+ *
+ *   SignalR (.NET):
+ *     const connection = new signalR.HubConnectionBuilder()
+ *       .withUrl("/metricsHub").build();
+ *     connection.on("ReceiveMetrics", onMetricsUpdate);
+ *
+ * CALLBACK INTERFACE:
+ *   The following global callbacks are called by this module:
+ *   - window.onMetricsUpdate(metrics) — Called with new metrics data
+ *   - window.onEventUpdate(events) — Called with new event log entries
+ *   - window.onSimulationUpdate(simulations) — Called with active simulations
+ *   - window.onProbeLatency(data) — Called with latency probe results
+ *
+ *   When porting, maintain this callback interface so dashboard.js and
+ *   charts.js continue to work without modification.
  */
 
 // Connection state

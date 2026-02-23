@@ -4,30 +4,79 @@
  * CPU WORKER — Standalone Background Process That Burns One CPU Core at 100%
  * =============================================================================
  *
- * PURPOSE:
- *   This file is the ENTRY POINT for a separately spawned background process.
- *   It is NOT included/required by the main application — it is launched via
- *   shell exec from CpuStressService.
- *   Each instance burns exactly one CPU core at 100% utilization.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   Each worker instance must:
+ *   1. Burn 100% of one CPU core for the specified duration
+ *   2. Self-terminate after duration expires
+ *   3. Handle termination signals gracefully (SIGTERM, SIGINT)
+ *   4. Write status to stderr for debugging
+ *   5. Exit with code 0 on success, 1 on error
  *
  * EXECUTION MODEL:
- *   - Spawned by: CpuStressService::launchWorkers() via shell_exec()
- *   - Each spawned process = 1 OS process = 1 CPU core pinned at 100%
- *   - The parent spawns N workers (one per target core)
- *   - Self-terminates after durationSeconds (passed as CLI argument)
+ *   - Launched as separate OS process by CpuStressService
+ *   - Receives duration as command-line argument
+ *   - Runs independently of HTTP request lifecycle
+ *   - Multiple instances = multiple cores utilized
  *
- * USAGE:
- *   php workers/cpu-worker.php <durationSeconds>
+ * HOW IT BURNS CPU (this implementation):
+ *   A tight while(true) loop calling hash_pbkdf2() with 5000 iterations.
+ *   Each call takes ~5-10ms of pure CPU work. Loop runs until duration
+ *   elapses or termination signal received.
  *
- * HOW IT BURNS CPU:
- *   A tight while(true) loop calling hash_pbkdf2() (PBKDF2 with 10,000 iterations).
- *   Each call takes ~5-10ms of pure CPU work. The loop runs until the duration
- *   elapses or a SIGTERM signal is received.
+ * PORTING NOTES:
+ *   The key requirement is sustained CPU work that:
+ *   - Actually consumes CPU (not just sleeping)
+ *   - Runs for the specified duration
+ *   - Can be terminated early via signal or PID kill
  *
- * SIGNAL HANDLING:
- *   - SIGTERM: graceful shutdown (sets $running = false, loop exits)
- *   - SIGINT:  graceful shutdown (for manual Ctrl+C)
- *   - Duration timeout: self-terminates when durationSeconds elapses
+ *   Node.js (Worker Thread):
+ *     // In worker file:
+ *     const { parentPort } = require('worker_threads');
+ *     const endTime = Date.now() + durationMs;
+ *     while (Date.now() < endTime) {
+ *       crypto.pbkdf2Sync('password', 'salt', 10000, 64, 'sha512');
+ *     }
+ *     process.exit(0);
+ *
+ *   Java (Runnable):
+ *     public void run() {
+ *       long endTime = System.currentTimeMillis() + durationMs;
+ *       while (System.currentTimeMillis() < endTime && !Thread.interrupted()) {
+ *         MessageDigest.getInstance("SHA-512").digest(data);
+ *       }
+ *     }
+ *
+ *   Python (multiprocessing.Process):
+ *     def worker(duration_seconds):
+ *       end_time = time.time() + duration_seconds
+ *       while time.time() < end_time:
+ *         hashlib.pbkdf2_hmac('sha512', b'password', b'salt', 10000)
+ *
+ *   .NET (Task):
+ *     var endTime = DateTime.UtcNow.AddSeconds(duration);
+ *     while (DateTime.UtcNow < endTime && !cancellationToken.IsCancellationRequested) {
+ *       using var sha = SHA512.Create();
+ *       sha.ComputeHash(data);
+ *     }
+ *
+ *   Ruby (fork):
+ *     end_time = Time.now + duration_seconds
+ *     while Time.now < end_time
+ *       Digest::SHA512.digest('data' * 10000)
+ *     end
+ *
+ * CPU-INTENSIVE OPERATIONS (pick one per language):
+ *   - Cryptographic hashing (PBKDF2, SHA-512, bcrypt)
+ *   - Mathematical computations (prime factorization, Fibonacci)
+ *   - Compression/decompression
+ *   - Matrix multiplication
+ *   - Regular expression on large strings
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Write start/end messages to stderr for debugging
+ *   - Use monotonic time (not wall clock) for duration
+ *   - Check termination signal periodically during loop
+ *   - Exit cleanly when duration expires
  *
  * @module workers/cpu-worker.php
  */

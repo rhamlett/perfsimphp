@@ -4,33 +4,83 @@
  * HTTP ROUTER — URL Pattern Matching & Controller Dispatch
  * =============================================================================
  *
- * PURPOSE:
- *   Maps HTTP method + URL path to controller actions. Lightweight router
- *   without external dependencies. Supports path parameters (e.g., :id).
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   The application must expose these REST API endpoints:
  *
- * ROUTE STRUCTURE:
- *   GET    /api/health            → HealthController::index
- *   GET    /api/health/environment → HealthController::environment
- *   GET    /api/health/build      → HealthController::build
- *   GET    /api/health/probe      → HealthController::probe
- *   GET    /api/metrics           → MetricsController::index
- *   GET    /api/metrics/probe     → MetricsController::probe
- *   GET    /api/metrics/internal-probe → MetricsController::internalProbe
- *   POST   /api/simulations/cpu   → CpuController::start
- *   DELETE /api/simulations/cpu/:id → CpuController::stop
- *   GET    /api/simulations/cpu   → CpuController::list
- *   POST   /api/simulations/memory → MemoryController::allocate
- *   DELETE /api/simulations/memory/:id → MemoryController::release
- *   GET    /api/simulations/memory → MemoryController::list
- *   POST   /api/simulations/blocking → BlockingController::block
- *   POST   /api/simulations/crash/* → CrashController::*
- *   GET    /api/loadtest          → LoadTestController::execute
- *   GET    /api/loadtest/stats    → LoadTestController::stats
- *   GET    /api/simulations       → AdminController::listSimulations
- *   GET    /api/admin/status      → AdminController::status
- *   GET    /api/admin/events      → AdminController::events
- *   GET    /api/admin/memory-debug → AdminController::memoryDebug
- *   GET    /api/admin/system-info → AdminController::systemInfo
+ *   HEALTH ENDPOINTS:
+ *     GET  /api/health              → Basic health check (status, timestamp)
+ *     GET  /api/health/environment  → Runtime environment info
+ *     GET  /api/health/build        → Build version/timestamp
+ *     GET  /api/health/probe        → Lightweight probe for latency testing
+ *
+ *   METRICS ENDPOINTS:
+ *     GET  /api/metrics             → Full metrics snapshot (CPU, memory, simulations)
+ *     GET  /api/metrics/probe       → Lightweight probe (may include blocking work)
+ *     GET  /api/metrics/internal-probe → Batch internal latency probing
+ *
+ *   CPU SIMULATION:
+ *     POST /api/simulations/cpu/start    → Start CPU stress (body: level, durationSeconds)
+ *     POST /api/simulations/cpu/stop     → Stop all CPU simulations
+ *     DELETE /api/simulations/cpu/:id    → Stop specific simulation
+ *     GET  /api/simulations/cpu          → List active CPU simulations
+ *
+ *   MEMORY SIMULATION:
+ *     POST /api/simulations/memory/allocate → Allocate memory (body: sizeMb)
+ *     POST /api/simulations/memory/release  → Release all memory
+ *     DELETE /api/simulations/memory/:id    → Release specific allocation
+ *     GET  /api/simulations/memory          → List active allocations
+ *
+ *   BLOCKING SIMULATION:
+ *     POST /api/simulations/blocking    → Start blocking (body: durationSeconds, concurrentWorkers)
+ *
+ *   CRASH SIMULATION:
+ *     POST /api/simulations/crash/failfast      → Crash via exit
+ *     POST /api/simulations/crash/stackoverflow → Crash via stack overflow
+ *     POST /api/simulations/crash/exception     → Crash via unhandled exception
+ *     POST /api/simulations/crash/oom           → Crash via memory exhaustion
+ *     POST /api/simulations/crash/all           → Crash multiple workers
+ *
+ *   ADMIN ENDPOINTS:
+ *     GET  /api/simulations         → List all active simulations
+ *     GET  /api/admin/status        → Full admin status
+ *     GET  /api/admin/events        → Event log entries
+ *
+ *   STATIC FILES:
+ *     GET  /                   → Dashboard (index.html)
+ *     GET  /docs.html          → API documentation
+ *     GET  /azure-*.html       → Azure-specific guides
+ *
+ * HOW IT WORKS (this implementation):
+ *   Simple pattern matching without external router library.
+ *   Uses if/switch statements for route matching.
+ *   Path parameters extracted via regex (e.g., :id → ([a-f0-9-]+))
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js (Express):
+ *     app.get('/api/health', HealthController.index);
+ *     app.post('/api/simulations/cpu/start', CpuController.start);
+ *     app.delete('/api/simulations/cpu/:id', CpuController.stop);
+ *
+ *   Java (Spring Boot):
+ *     @GetMapping("/api/health") public Health index() {...}
+ *     @PostMapping("/api/simulations/cpu/start") public Simulation start(...) {...}
+ *     @DeleteMapping("/api/simulations/cpu/{id}") public void stop(@PathVariable String id) {...}
+ *
+ *   Python (Flask):
+ *     @app.route('/api/health', methods=['GET']) def health(): ...
+ *     @app.route('/api/simulations/cpu/start', methods=['POST']) def cpu_start(): ...
+ *     @app.route('/api/simulations/cpu/<id>', methods=['DELETE']) def cpu_stop(id): ...
+ *
+ *   .NET (ASP.NET Core):
+ *     [HttpGet("api/health")] public IActionResult Index() {...}
+ *     [HttpPost("api/simulations/cpu/start")] public IActionResult Start([FromBody] CpuParams params) {...}
+ *     [HttpDelete("api/simulations/cpu/{id}")] public IActionResult Stop(string id) {...}
+ *
+ *   Ruby (Rails/Sinatra):
+ *     get '/api/health' => 'health#index'
+ *     post '/api/simulations/cpu/start' => 'cpu#start'
+ *     delete '/api/simulations/cpu/:id' => 'cpu#stop'
  *
  * @module src/Router.php
  */

@@ -4,28 +4,59 @@
  * CPU STRESS SERVICE — Multi-Core CPU Load Simulation
  * =============================================================================
  *
- * PURPOSE:
- *   Generates real CPU load by spawning separate OS processes that run tight
- *   synchronous loops. This makes CPU usage visible in system monitoring tools
- *   like Azure App Service metrics, top/htop, and Azure Monitor.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must generate sustained, measurable CPU load that:
+ *   1. Is visible in system monitoring tools (Azure Monitor, top, htop)
+ *   2. Does NOT block the web server from handling other requests
+ *   3. Can be started/stopped on demand via API
+ *   4. Self-terminates after a configurable duration
+ *   5. Supports two intensity levels: "moderate" and "high"
  *
- * HOW IT WORKS:
+ * HOW IT WORKS (this implementation):
  *   1. User selects intensity level: 'moderate' or 'high'
  *   2. Launch N background PHP processes (workers/cpu-worker.php) via exec()
  *   3. Each process runs hash_pbkdf2() in a tight loop, burning 100% of one CPU core
  *   4. After durationSeconds, the worker self-terminates (or is killed manually)
  *
- * WHY SEPARATE PROCESSES:
+ * WHY SEPARATE PROCESSES (PHP-specific):
  *   PHP-FPM workers are request-scoped. CPU work in the current request only
  *   blocks that one request. To produce SYSTEM-WIDE CPU load visible in
  *   monitoring, we need separate long-running processes that persist beyond
  *   the HTTP request lifecycle.
  *
- * PROCESS LIFECYCLE:
- *   - Workers self-terminate after their configured duration
- *   - Worker PIDs are stored in SharedStorage for cross-request tracking
- *   - The stop endpoint sends SIGTERM/SIGKILL to terminate workers early
- *   - On Windows, taskkill is used instead of POSIX signals
+ * PORTING NOTES:
+ *   When porting to another language/runtime, the key requirement is generating
+ *   CPU load WITHOUT blocking the web server:
+ *
+ *   Node.js:
+ *     - Use worker_threads (not child processes) for true multi-core
+ *     - setInterval with CPU-bound work would block the event loop
+ *     - Each Worker runs in its own V8 isolate with separate event loop
+ *
+ *   Java (Spring Boot):
+ *     - Use ExecutorService with thread pool for CPU workers
+ *     - Each thread runs tight loop with Math operations or hashing
+ *     - Spring's @Async with custom ThreadPoolTaskExecutor
+ *
+ *   Python (Flask/FastAPI):
+ *     - Use multiprocessing.Process (not threading due to GIL)
+ *     - Each process runs CPU-bound loop independently
+ *     - asyncio won't help here - need true parallel processes
+ *
+ *   .NET (ASP.NET Core):
+ *     - Use Task.Run with dedicated threads for CPU work
+ *     - Or spawn background processes similar to PHP approach
+ *     - Avoid ThreadPool threads as they're shared with request handling
+ *
+ *   Ruby (Rails):
+ *     - Fork background processes (similar to PHP approach)
+ *     - Threads won't help due to MRI's GIL
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - Worker count calculation must account for container CPU throttling
+ *   - Azure App Service often shows more vCPUs than actually available
+ *   - PID tracking is optional but enables clean shutdown
+ *   - On Windows, use taskkill instead of POSIX signals
  *
  * @module src/Services/CpuStressService.php
  */

@@ -4,9 +4,48 @@
  * UTILITY FUNCTIONS
  * =============================================================================
  *
- * PURPOSE:
- *   Shared helper functions used across services and controllers.
- *   All functions are pure and stateless.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   Common utilities needed across the application:
+ *   1. UUID generation (v4) for simulation/event IDs
+ *   2. Unit conversions (bytes ↔ MB)
+ *   3. Timestamp formatting (ISO 8601)
+ *   4. Time calculations (elapsed time, current time in ms)
+ *   5. JSON body parsing for POST requests
+ *
+ * PORTING NOTES:
+ *   Most of these have standard library equivalents:
+ *
+ *   UUID Generation:
+ *     Node.js: crypto.randomUUID() or uuid package
+ *     Java: UUID.randomUUID().toString()
+ *     Python: str(uuid.uuid4())
+ *     .NET: Guid.NewGuid().ToString()
+ *     Ruby: SecureRandom.uuid
+ *
+ *   Bytes to MB:
+ *     All languages: bytes / (1024 * 1024)
+ *     Or: bytes / 1_048_576
+ *
+ *   ISO 8601 Timestamp:
+ *     Node.js: new Date().toISOString()
+ *     Java: Instant.now().toString()
+ *     Python: datetime.utcnow().isoformat() + 'Z'
+ *     .NET: DateTime.UtcNow.ToString("o")
+ *     Ruby: Time.now.utc.iso8601(3)
+ *
+ *   Current Time in MS:
+ *     Node.js: Date.now() or performance.now()
+ *     Java: System.currentTimeMillis()
+ *     Python: time.time() * 1000
+ *     .NET: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+ *     Ruby: (Time.now.to_f * 1000).to_i
+ *
+ *   JSON Body Parsing:
+ *     Node.js: express.json() middleware or JSON.parse(body)
+ *     Java: @RequestBody with Jackson auto-binding
+ *     Python: request.get_json() (Flask)
+ *     .NET: [FromBody] attribute
+ *     Ruby: JSON.parse(request.body.read)
  *
  * @module src/Utils.php
  */

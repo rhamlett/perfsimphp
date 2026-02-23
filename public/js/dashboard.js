@@ -3,36 +3,54 @@
  * DASHBOARD.JS — Main Dashboard Controller
  * =============================================================================
  *
- * PURPOSE:
- *   Handles all dashboard UI interactions, form submissions, event log,
- *   simulation status updates, and server information display.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This frontend module must:
+ *   1. Display real-time system metrics (CPU, memory, latency)
+ *   2. Provide controls to start/stop each simulation type
+ *   3. Show active simulation status with visual indicators
+ *   4. Display event log with color-coded severity levels
+ *   5. Auto-refresh data via polling or push mechanism
  *
- * CONTROL SECTIONS:
- *   1. CPU Stress — Generates CPU load via background PHP processes
- *   2. Memory Pressure — Allocates large data structures in shared storage
- *   3. Request Thread Blocking — Blocks PHP-FPM workers with CPU-intensive ops
- *      (In Node.js: "Event Loop Blocking". PHP has no event loop, so blocking
- *       a PHP-FPM worker thread is the equivalent simulation.)
- *   4. Crash Simulator — Triggers various crash types for recovery testing
- *      Types: failfast (exit(1)), stackoverflow (infinite recursion),
- *             exception (trigger_error), oom (memory exhaustion)
+ * SIMULATION CONTROLS PROVIDED:
+ *   1. CPU Stress — Intensity level selector + duration + start/stop buttons
+ *   2. Memory Pressure — Size selector + allocate/release buttons
+ *   3. Request Thread Blocking — Duration + worker count + start button
+ *   4. Crash Simulator — Crash type selector + trigger button
  *
  * DATA FLOW:
- *   - polling-client.js → onMetricsUpdate() → updateCharts() + updateDashboard()
- *   - polling-client.js → onEventUpdate() → renderEventLog()
- *   - polling-client.js → onSimulationUpdate() → updateActiveSimulations()
- *   - polling-client.js → onProbeLatency() → onProbeLatency() in charts.js
- *
- * FORM SUBMISSION:
- *   All forms POST JSON to /api/simulations/* endpoints.
- *   Server validates and returns { success, message } or { error }.
+ *   polling-client.js → onMetricsUpdate() → updateCharts() + updateDashboard()
+ *   polling-client.js → onEventUpdate() → renderEventLog()
+ *   polling-client.js → onSimulationUpdate() → updateActiveSimulations()
+ *   polling-client.js → onProbeLatency() → charts.js for visualization
  *
  * PORTING NOTES:
  *   This file is FRONTEND JavaScript — it runs in the browser.
- *   When porting the backend to another language:
- *   - Update simulation names and descriptions to match the target runtime
- *   - Update crash types to match available crash mechanisms
+ *   The JavaScript stays the same regardless of backend language.
+ *
+ *   Alternative Frontend Frameworks:
+ *     React:     - Replace with React components and useState/useEffect hooks
+ *                - Use fetch/axios for API calls
+ *                - Consider React Query for data fetching/caching
+ *     Vue:       - Replace with Vue components and reactive data
+ *                - Use Composition API (ref, computed, watch)
+ *     Angular:   - Replace with Angular components and services
+ *                - Use HttpClient and RxJS observables
+ *     Svelte:    - Replace with Svelte components and stores
+ *                - Use reactive declarations ($:)
+ *
+ *   Alternative Data Push Mechanisms:
+ *     WebSocket: - Replace polling with WebSocket connection
+ *                - Server pushes updates when metrics change
+ *                - Lower latency than polling
+ *     SSE:       - Server-Sent Events for unidirectional push
+ *                - Simpler than WebSocket, auto-reconnect
+ *     GraphQL:   - Subscriptions for real-time updates
+ *
+ * WHEN PORTING THE BACKEND:
+ *   - Update API endpoint paths if they change
+ *   - Update simulation parameter names to match backend
  *   - Update environment info fields for the target runtime
+ *   - Update crash types to match available crash mechanisms
  */
 
 // Current server PID for restart detection

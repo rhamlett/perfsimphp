@@ -4,15 +4,71 @@
  * SIMULATION TRACKER SERVICE — Simulation Lifecycle Management
  * =============================================================================
  *
- * PURPOSE:
- *   Central registry for all active and completed simulations. Uses shared
- *   storage (APCu/files) to persist state across PHP-FPM requests.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must track all simulations throughout their lifecycle:
+ *   1. Create simulations with unique IDs and parameters
+ *   2. Track status: ACTIVE → COMPLETED | STOPPED | FAILED
+ *   3. Support timed simulations (auto-complete after duration)
+ *   4. Support indefinite simulations (manual stop required)
+ *   5. Provide filtered queries (by type, by status)
+ *   6. Handle cleanup of expired simulations
  *
  * STATE MACHINE:
  *   createSimulation() → status=ACTIVE
  *   completeSimulation() → status=COMPLETED (duration elapsed)
  *   stopSimulation() → status=STOPPED (user-initiated)
  *   failSimulation() → status=FAILED (error during execution)
+ *
+ * SIMULATION RECORD STRUCTURE:
+ *   {
+ *     id: string (UUID),
+ *     type: string (CPU_STRESS | MEMORY_PRESSURE | REQUEST_BLOCKING),
+ *     parameters: object (simulation-specific config),
+ *     status: string (ACTIVE | COMPLETED | STOPPED | FAILED),
+ *     startedAt: string (ISO 8601),
+ *     stoppedAt: string | null (ISO 8601),
+ *     scheduledEndAt: string | null (ISO 8601, for timed simulations)
+ *   }
+ *
+ * HOW IT WORKS (this implementation):
+ *   - Simulations stored in APCu/file-based SharedStorage
+ *   - Cleanup runs during getActiveSimulations() (lazy cleanup)
+ *   - CPU worker processes killed on simulation expiry
+ *   - Read-only fast path for high-frequency polling
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js:
+ *     - In-memory Map or object (process is persistent)
+ *     - Use setInterval to check for expiring simulations
+ *     - No shared storage needed between requests
+ *
+ *   Java (Spring Boot):
+ *     - ConcurrentHashMap in @Service singleton
+ *     - ScheduledExecutorService for expiration checking
+ *     - Consider Spring's @Scheduled for periodic cleanup
+ *
+ *   Python (Flask/FastAPI):
+ *     - Dict in application scope
+ *     - Background task for cleanup (APScheduler or Celery)
+ *     - Redis for multi-worker state
+ *
+ *   .NET (ASP.NET Core):
+ *     - ConcurrentDictionary in singleton service
+ *     - IHostedService + Timer for cleanup
+ *     - IMemoryCache with automatic expiration
+ *
+ *   Ruby (Rails):
+ *     - Hash in application scope with mutex
+ *     - Sidekiq for background cleanup jobs
+ *     - Redis for multi-process state
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - State must persist across HTTP requests
+ *   - Cleanup must not block request handling
+ *   - Consider lazy vs active cleanup strategies
+ *   - CPU workers need explicit termination on stop
+ *   - High-frequency polling needs fast read path
  *
  * @module src/Services/SimulationTrackerService.php
  */

@@ -4,41 +4,79 @@
  * CRASH SERVICE — Intentional Process Termination Simulation
  * =============================================================================
  *
- * PURPOSE:
- *   Intentionally crashes the PHP-FPM worker process using different failure
- *   modes. Each crash type produces a different diagnostic signature in
- *   monitoring tools (Azure AppLens, Application Insights, Kudu log stream),
- *   helping users learn to identify crash types from their diagnostics.
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   This service must provide multiple crash types that:
+ *   1. Generate different diagnostic signatures in monitoring tools
+ *   2. Allow users to practice identifying crash types from logs
+ *   3. Send HTTP response BEFORE crashing (client gets confirmation)
+ *   4. Demonstrate auto-recovery behavior of the hosting platform
+ *   5. Help learn Azure AppLens, Application Insights, log analysis
  *
- * CRASH TYPES (PHP equivalents of Node.js crash types):
+ * REQUIRED CRASH TYPES (implement equivalent for each runtime):
  *
- *   1. FailFast (exit)         → exit(1) — immediate process termination.
- *      PHP equivalent of process.abort(). Visible in PHP-FPM error logs.
- *      Auto-recovers on Azure (FPM spawns new worker).
+ *   1. FailFast / Exit:
+ *      Immediate process termination with non-zero exit code.
+ *      Most platforms auto-restart the worker process.
  *
- *   2. Stack Overflow           → Infinite recursion until stack exhausted.
- *      Visible as "Maximum function nesting level" or segfault.
- *      May require manual restart on Azure.
+ *   2. Stack Overflow:
+ *      Infinite recursion until stack exhausted.
+ *      May cause segfault; recovery behavior varies.
  *
- *   3. Fatal Error              → trigger_error(E_ERROR) — unrecoverable error.
- *      Standard crash, auto-recovers on Azure App Service.
- *      PHP equivalent of unhandled exception in Node.js.
+ *   3. Unhandled Exception / Fatal Error:
+ *      Standard crash from uncaught exception or error.
+ *      Typically auto-recovers on all platforms.
  *
- *   4. Memory Exhaustion (OOM)  → Allocate until memory_limit hit.
- *      Visible as "Allowed memory size exhausted" fatal error.
- *      Auto-recovers on Azure (FPM spawns new worker).
+ *   4. Out of Memory (OOM):
+ *      Rapidly allocate until memory limit exceeded.
+ *      May be killed by OS OOM killer on containers.
  *
- * SAFETY:
- *   The HTTP response (202 Accepted) is sent BEFORE the crash occurs.
- *   We use register_shutdown_function and output buffering to ensure the
- *   response reaches the client.
+ * HOW IT WORKS (this implementation):
+ *   - HTTP 202 response is sent BEFORE crash occurs
+ *   - register_shutdown_function schedules crash after response is flushed
+ *   - PHP-FPM spawns new worker to replace crashed one
+ *   - Event log records the crash for debugging practice
  *
- * AZURE BEHAVIOR:
- *   - PHP-FPM's process manager automatically spawns a new worker after
- *     most crash types (exit, fatal error, OOM).
- *   - Stack Overflow (segfault) may leave the worker in a bad state.
- *   - None of these crash the entire PHP-FPM master process — only the
- *     individual worker is affected.
+ * PORTING NOTES:
+ *
+ *   Node.js:
+ *     - FailFast: process.exit(1) or process.abort()
+ *     - StackOverflow: function recurse() { recurse(); }
+ *     - Exception: throw new Error() (uncaught)
+ *     - OOM: while(true) { arrays.push(Buffer.alloc(10*1024*1024)); }
+ *     - NOTE: Node crashes the entire process, not just one worker
+ *
+ *   Java (Spring Boot):
+ *     - FailFast: System.exit(1) or Runtime.halt(1)
+ *     - StackOverflow: recursive method without base case
+ *     - Exception: throw new RuntimeException() (uncaught)
+ *     - OOM: while(true) { list.add(new byte[10*1024*1024]); }
+ *     - Consider sending response first via async or @ResponseBody
+ *
+ *   Python (Flask/FastAPI):
+ *     - FailFast: os._exit(1) or sys.exit(1)
+ *     - StackOverflow: def recurse(): recurse() (hits recursion limit)
+ *     - Exception: raise Exception() (uncaught)
+ *     - OOM: while True: lists.append('X' * 10*1024*1024)
+ *     - Use background task or atexit for delayed crash
+ *
+ *   .NET (ASP.NET Core):
+ *     - FailFast: Environment.FailFast() or Environment.Exit(1)
+ *     - StackOverflow: recursive method (hard to catch in .NET)
+ *     - Exception: throw new Exception() (uncaught)
+ *     - OOM: while(true) { list.Add(new byte[10*1024*1024]); }
+ *
+ *   Ruby (Rails):
+ *     - FailFast: Kernel.exit!(1) or Process.kill('KILL', Process.pid)
+ *     - StackOverflow: def recurse; recurse; end (SystemStackError)
+ *     - Exception: raise "error" (uncaught)
+ *     - OOM: loop { array << 'X' * 10*1024*1024 }
+ *
+ * CROSS-PLATFORM CONSIDERATIONS:
+ *   - ALWAYS send response before crashing (user needs feedback)
+ *   - Log the crash before it happens for debugging practice
+ *   - Warn user if crash type may require manual restart
+ *   - Test recovery behavior on Azure/cloud platform
+ *   - Some crash types (StackOverflow, OOM) may not auto-recover
  *
  * @module src/Services/CrashService.php
  */

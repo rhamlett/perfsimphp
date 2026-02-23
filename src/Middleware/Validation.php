@@ -4,10 +4,49 @@
  * INPUT VALIDATION HELPERS
  * =============================================================================
  *
- * PURPOSE:
- *   Reusable validation functions for API request parameters.
- *   Uses "validate-or-throw" pattern — returns validated value or throws
- *   ValidationException (caught by global error handler → HTTP 400).
+ * FEATURE REQUIREMENTS (language-agnostic):
+ *   API input validation must:
+ *   1. Validate all user input before processing
+ *   2. Return clear error messages with field names
+ *   3. Use HTTP 400 Bad Request for validation failures
+ *   4. Support range validation for numeric fields
+ *   5. Handle type coercion (string "100" → int 100)
+ *
+ * VALIDATION PATTERN:
+ *   "Validate-or-throw" — returns sanitized value or throws exception.
+ *   The global error handler catches exceptions and returns JSON error.
+ *
+ * PORTING NOTES:
+ *
+ *   Node.js:
+ *     - Libraries: joi, yup, zod, express-validator
+ *     - Example with Joi:
+ *       const schema = Joi.object({
+ *         targetLoadPercent: Joi.number().min(1).max(100).required()
+ *       });
+ *       const { error, value } = schema.validate(req.body);
+ *
+ *   Java (Spring Boot):
+ *     - Use Bean Validation (javax.validation / jakarta.validation)
+ *     - @Valid annotation triggers validation
+ *     - Example: @Min(1) @Max(100) int targetLoadPercent;
+ *
+ *   Python (Flask):
+ *     - Libraries: marshmallow, pydantic, cerberus
+ *     - Example with Pydantic (FastAPI):
+ *       class CpuParams(BaseModel):
+ *         level: Literal['moderate', 'high']
+ *         durationSeconds: int = Field(ge=1, le=300)
+ *
+ *   .NET (ASP.NET Core):
+ *     - Data Annotations: [Range(1, 100)], [Required]
+ *     - Or FluentValidation library
+ *     - ModelState.IsValid for validation check
+ *
+ *   Ruby (Rails):
+ *     - ActiveModel validations
+ *     - validates :param, numericality: { in: 1..100 }
+ *     - Dry-validation gem for complex schemas
  *
  * @module src/Middleware/Validation.php
  */
