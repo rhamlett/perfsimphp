@@ -1,7 +1,11 @@
 /vendor/
 /storage/*.json
 /storage/*.log
+/storage/*.bin
 *.log
+*.zip
+webapp-logs/
+webapp-logs2/
 .env
 .DS_Store
 Thumbs.db

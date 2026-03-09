@@ -93,6 +93,14 @@ if ($durationSeconds <= 0) {
 
 $running = true;
 
+// Define signal constants if not available (Windows compatibility)
+if (!defined('SIGTERM')) {
+    define('SIGTERM', 15);
+}
+if (!defined('SIGINT')) {
+    define('SIGINT', 2);
+}
+
 // Set up signal handlers for graceful shutdown (POSIX systems only)
 if (function_exists('pcntl_signal')) {
     pcntl_signal(SIGTERM, function () use (&$running) {

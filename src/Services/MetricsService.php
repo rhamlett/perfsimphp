@@ -315,8 +315,8 @@ class MetricsService
         // Add APCu memory info if available
         if (function_exists('apcu_cache_info')) {
             try {
-                $apcuInfo = apcu_cache_info(true);
-                $apcuMem = apcu_sma_info(true);
+                $apcuInfo = \apcu_cache_info(true);
+                $apcuMem = \apcu_sma_info(true);
                 $metrics['apcuUsageMb'] = round(($apcuMem['seg_size'] - $apcuMem['avail_mem']) / 1024 / 1024, 2);
                 $metrics['apcuAvailMb'] = round($apcuMem['avail_mem'] / 1024 / 1024, 2);
                 $metrics['apcuEntries'] = $apcuInfo['num_entries'] ?? 0;

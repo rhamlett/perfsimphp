@@ -82,7 +82,7 @@ class SharedStorage
     private static function hasApcu(): bool
     {
         if (!self::$apcuChecked) {
-            self::$apcuAvailable = function_exists('apcu_fetch') && apcu_enabled();
+            self::$apcuAvailable = function_exists('apcu_fetch') && \apcu_enabled();
             self::$apcuChecked = true;
         }
         return self::$apcuAvailable;
@@ -97,7 +97,7 @@ class SharedStorage
             'backend' => self::hasApcu() ? 'apcu' : 'file',
             'apcuAvailable' => self::hasApcu(),
             'apcuFunctionExists' => function_exists('apcu_fetch'),
-            'apcuEnabled' => function_exists('apcu_enabled') ? apcu_enabled() : false,
+            'apcuEnabled' => function_exists('apcu_enabled') ? \apcu_enabled() : false,
         ];
     }
 
@@ -112,7 +112,7 @@ class SharedStorage
     {
         if (self::hasApcu()) {
             $success = false;
-            $value = apcu_fetch($key, $success);
+            $value = \apcu_fetch($key, $success);
             return $success ? $value : $default;
         }
 
@@ -129,7 +129,7 @@ class SharedStorage
     public static function set(string $key, mixed $value, int $ttl = 0): void
     {
         if (self::hasApcu()) {
-            apcu_store($key, $value, $ttl);
+            \apcu_store($key, $value, $ttl);
             return;
         }
 
@@ -144,7 +144,7 @@ class SharedStorage
     public static function delete(string $key): void
     {
         if (self::hasApcu()) {
-            apcu_delete($key);
+            \apcu_delete($key);
             return;
         }
 
@@ -165,7 +165,7 @@ class SharedStorage
     {
         if (self::hasApcu()) {
             // apcu_add returns true only if the key didn't exist
-            return apcu_add($key, $value, $ttl);
+            return \apcu_add($key, $value, $ttl);
         }
 
         return self::fileAddOnce($key, $value);

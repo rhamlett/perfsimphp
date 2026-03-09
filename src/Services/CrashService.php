@@ -205,11 +205,11 @@ class CrashService
         );
 
         // Schedule crash after response is sent
-        /** @noinspection PhpInfiniteLoopInspection - Intentional infinite loop for OOM crash simulation */
         register_shutdown_function(function () {
-            // Rapidly allocate memory in 10MB chunks
+            // Rapidly allocate memory in 10MB chunks - intentional OOM crash simulation
             $allocations = [];
-            while (true) {
+            $keepAllocating = true; // Intentional infinite loop for crash
+            while ($keepAllocating) {
                 $allocations[] = str_repeat('X', 10 * 1024 * 1024); // 10MB
             }
         });

@@ -307,7 +307,7 @@ class MemoryPressureService
         $deleted = 0;
         
         try {
-            $info = apcu_cache_info();
+            $info = \apcu_cache_info();
             if (!isset($info['cache_list']) || !is_array($info['cache_list'])) {
                 return 0;
             }
@@ -315,7 +315,7 @@ class MemoryPressureService
             foreach ($info['cache_list'] as $entry) {
                 $key = $entry['info'] ?? $entry['key'] ?? null;
                 if ($key && str_starts_with($key, 'perfsim_memblock_')) {
-                    if (apcu_delete($key)) {
+                    if (\apcu_delete($key)) {
                         $deleted++;
                     }
                 }
@@ -375,7 +375,7 @@ class MemoryPressureService
                 // Load APCu chunks into PHP memory
                 for ($i = 0; $i < $toLoad && ($loadedMb + $i) < $maxMb; $i++) {
                     $key = "perfsim_memblock_{$id}_{$i}";
-                    $data = apcu_fetch($key);
+                    $data = \apcu_fetch($key);
                     if ($data !== false) {
                         // Copy to local variable to force into PHP heap
                         $loadedData[] = $data;
@@ -455,7 +455,7 @@ class MemoryPressureService
             for ($i = 0; $i < $sizeMb; $i++) {
                 $key = "perfsim_memblock_{$id}_{$i}";
                 $data = str_repeat(chr(mt_rand(65, 90)), 1024 * 1024); // 1MB of random-ish data
-                apcu_store($key, $data, 0); // TTL=0 means persistent
+                \apcu_store($key, $data, 0); // TTL=0 means persistent
             }
             return 'apcu';
         }
@@ -493,10 +493,10 @@ class MemoryPressureService
             // We don't know exactly how many chunks, so iterate with a reasonable upper bound
             for ($i = 0; $i < 10000; $i++) {
                 $key = "perfsim_memblock_{$id}_{$i}";
-                if (!apcu_exists($key)) {
+                if (!\apcu_exists($key)) {
                     break;
                 }
-                apcu_delete($key);
+                \apcu_delete($key);
             }
             return;
         }
