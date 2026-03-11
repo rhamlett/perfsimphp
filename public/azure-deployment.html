@@ -311,13 +311,14 @@
       </a>
       <div class="sidebar-divider"></div>
       <div class="sidebar-section-label">External</div>
-      <a href="https://github.com/rhamlett/perfsimphp" target="_blank" class="sidebar-nav-item">
+      <a href="https://github.com/rhamlett/perfsimphp" target="_blank" rel="noopener" class="sidebar-nav-item">
         <span class="nav-icon">&#x1F419;</span>
         <span class="nav-label">GitHub Repository<span class="nav-desc">Source code &amp; issues</span></span>
       </a>
     </nav>
-    <div class="sidebar-footer">
-      PerfSimPhp v1.0 &bull; PHP 8.4
+    <div class="sidebar-footer" id="sidebar-footer">
+      <!-- Build timestamp loaded dynamically -->
+      Performance Problem Simulator
     </div>
   </aside>
 
@@ -358,7 +359,7 @@
       <ol>
         <li><strong>Navigate to App Services</strong>
           <ul>
-            <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+            <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener">Azure Portal</a></li>
             <li>Search for "App Services" and select it</li>
             <li>Click <strong>+ Create</strong></li>
           </ul>
@@ -424,7 +425,7 @@ az webapp create \
       <ol>
         <li><strong>Navigate to App Registrations</strong>
           <ul>
-            <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+            <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener">Azure Portal</a></li>
             <li>Search for "App registrations" and select it</li>
             <li>Click <strong>+ New registration</strong></li>
           </ul>
@@ -518,7 +519,7 @@ az webapp create \
       <ol>
         <li><strong>Fork the Repository</strong>
           <ul>
-            <li>Go to the <a href="https://github.com/rhamlett/perfsimphp" target="_blank">perfsimphp repository</a></li>
+            <li>Go to the <a href="https://github.com/rhamlett/perfsimphp" target="_blank" rel="noopener">perfsimphp repository</a></li>
             <li>Click <strong>Fork</strong> to create your own copy</li>
           </ul>
         </li>
@@ -694,8 +695,8 @@ echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
             <li class="doc-toc-item">
               <a href="#overview"><span class="toc-icon">&#x1F4CB;</span>Overview</a>
             </li>
-            <div class="doc-toc-divider"></div>
-            <div class="doc-toc-section-label">Setup Steps</div>
+            <li class="doc-toc-divider" aria-hidden="true"></li>
+            <li class="doc-toc-section-label">Setup Steps</li>
             <li class="doc-toc-item">
               <a href="#app-service"><span class="toc-icon">1&#xFE0F;&#x20E3;</span>Create App Service</a>
             </li>
@@ -714,8 +715,8 @@ echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
             <li class="doc-toc-item">
               <a href="#deploy"><span class="toc-icon">6&#xFE0F;&#x20E3;</span>Deploy</a>
             </li>
-            <div class="doc-toc-divider"></div>
-            <div class="doc-toc-section-label">Reference</div>
+            <li class="doc-toc-divider" aria-hidden="true"></li>
+            <li class="doc-toc-section-label">Reference</li>
             <li class="doc-toc-item">
               <a href="#troubleshooting"><span class="toc-icon">&#x1F527;</span>Troubleshooting</a>
             </li>
@@ -756,6 +757,11 @@ echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"</code></pre>
         const buildInfo = document.getElementById('build-info');
         if (buildInfo && data.buildTimestamp) {
           buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
+        // Update sidebar footer with build info
+        const sidebarFooter = document.getElementById('sidebar-footer');
+        if (sidebarFooter && data.buildTimestamp) {
+          sidebarFooter.textContent = 'Build: ' + data.buildTimestamp;
         }
       })
       .catch(() => {});

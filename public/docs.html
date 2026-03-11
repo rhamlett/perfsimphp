@@ -291,8 +291,9 @@
         <span class="nav-label">GitHub Repository<span class="nav-desc">Source code &amp; issues</span></span>
       </a>
     </nav>
-    <div class="sidebar-footer">
-      PerfSimPhp v1.0 &bull; PHP 8.4
+    <div class="sidebar-footer" id="sidebar-footer">
+      <!-- Build timestamp loaded dynamically -->
+      Performance Problem Simulator
     </div>
   </aside>
 
@@ -689,6 +690,11 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=0&amp;memoryKb=100</code>
         const buildInfo = document.getElementById('build-info');
         if (buildInfo && data.buildTimestamp) {
           buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
+        // Update sidebar footer with build info
+        const sidebarFooter = document.getElementById('sidebar-footer');
+        if (sidebarFooter && data.buildTimestamp) {
+          sidebarFooter.textContent = 'Build: ' + data.buildTimestamp;
         }
       })
       .catch(() => {});

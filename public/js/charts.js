@@ -7,10 +7,15 @@
  *   This charting module must provide:
  *   1. CPU/Memory trend chart — Combined CPU%, memory MB over 60-second window
  *   2. Worker Response chart — Backend worker response time in ms (60s window)
- *   3. Latency chart — HTTP probe latency, high-resolution (~600 points)
+ *   3. Latency chart — HTTP probe latency, high-resolution (600 points at 100ms)
  *   4. Color-coded severity indicators for latency values
  *   5. Rolling statistics: current, average, max, P99 latency
  *   6. Server responsiveness status (consecutive failures, recovery time)
+ *
+ * DATA POINT CONFIGURATION (60-second windows on all charts):
+ *   - Upper charts: 240 data points × 250ms intervals = 60s
+ *   - Latency chart: 600 data points × 100ms intervals = 60s
+ *   Each chart maintains exactly 60 seconds of data regardless of update rate.
  *
  * LATENCY SEVERITY THRESHOLDS:
  *   These thresholds apply regardless of implementation:
@@ -94,8 +99,8 @@ let cpuMemoryChart = null;
 let eventloopChart = null;
 let latencyChart = null;
 
-// Data history for CPU/Memory/Worker charts (60 data points at ~1s intervals = 60s)
-const maxDataPoints = 60;
+// Data history for CPU/Memory/Worker charts (240 data points at 250ms intervals = 60s)
+const maxDataPoints = 240;
 const chartData = {
   labels: [],
   cpu: [],
@@ -104,7 +109,7 @@ const chartData = {
   rss: [],
 };
 
-// Separate data store for latency chart (60 seconds at 100ms intervals)
+// Separate data store for latency chart (600 data points at 100ms intervals = 60s)
 const maxLatencyDataPoints = 600;
 const latencyChartData = {
   labels: [],

@@ -731,6 +731,14 @@ section h2, section h3 {
   font-weight: 700;
   color: var(--color-text);
   transition: color var(--transition-fast);
+  display: inline-block;
+  min-width: 4.5em;
+  text-align: right;
+}
+
+/* Count-only badges (no time units) need narrower fixed width */
+#latency-critical {
+  min-width: 1.5em;
 }
 
 .stat-value.good { color: var(--color-success); }
@@ -928,7 +936,7 @@ section h2, section h3 {
    -------------------------------------------------------------------------- */
 .eventloop-education {
   background: rgba(135, 100, 184, 0.1);
-  border: 1px dashed var(--color-eventloop);
+  border: 1px solid var(--color-eventloop);
   border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.75rem;
@@ -1138,7 +1146,7 @@ section h2, section h3 {
 }
 
 .crash-section {
-  border: 2px dashed var(--color-danger);
+  border: 2px solid var(--color-danger);
   background: rgba(209, 52, 56, 0.05);
 }
 
@@ -1343,7 +1351,7 @@ button:disabled {
 .crash-all-form {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px dashed rgba(209, 52, 56, 0.3);
+  border-top: 1px solid rgba(209, 52, 56, 0.3);
 }
 
 .crash-count-input {

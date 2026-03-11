@@ -278,7 +278,8 @@
         <span class="nav-label">GitHub Repository<span class="nav-desc">Source code & issues</span></span>
       </a>
     </nav>
-    <div class="sidebar-footer">
+    <div class="sidebar-footer" id="sidebar-footer">
+      <!-- Build timestamp loaded dynamically -->
       Performance Problem Simulator
     </div>
   </aside>
@@ -1010,6 +1011,11 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
         const buildInfo = document.getElementById('build-info');
         if (buildInfo && data.buildTimestamp) {
           buildInfo.textContent = 'Build: ' + data.buildTimestamp;
+        }
+        // Update sidebar footer with build info
+        const sidebarFooter = document.getElementById('sidebar-footer');
+        if (sidebarFooter && data.buildTimestamp) {
+          sidebarFooter.textContent = 'Build: ' + data.buildTimestamp;
         }
         // Load page footer from PAGE_FOOTER env var (allows HTML links)
         const pageFooter = document.getElementById('page-footer');

@@ -133,6 +133,19 @@ function initDashboard() {
 }
 
 /**
+ * Gets the stress color for a percentage value.
+ * @param {number} percent - Value from 0-100
+ * @param {number} yellowThreshold - Percentage at which to turn yellow (default 60)
+ * @param {number} redThreshold - Percentage at which to turn red (default 80)
+ * @returns {string} CSS color value
+ */
+function getStressColor(percent, yellowThreshold = 60, redThreshold = 80) {
+  if (percent >= redThreshold) return '#d13438';  // Red - critical
+  if (percent >= yellowThreshold) return '#ffb900';  // Yellow - warning
+  return '#17a035';  // Green - healthy
+}
+
+/**
  * Updates dashboard text elements with current metrics data.
  *
  * @param {Object} metrics - Metrics data from server
@@ -144,18 +157,25 @@ function initDashboard() {
  *   }
  */
 function updateDashboard(metrics) {
-  // CPU value
+  // CPU value - color changes at 60% (yellow) and 80% (red)
   const cpuValue = document.getElementById('cpu-value');
   if (cpuValue) {
-    cpuValue.textContent = (metrics.cpu?.usagePercent || 0).toFixed(1) + '%';
+    const cpuPercent = metrics.cpu?.usagePercent || 0;
+    cpuValue.textContent = cpuPercent.toFixed(1) + '%';
+    cpuValue.style.color = getStressColor(cpuPercent, 60, 80);
   }
 
   // Memory value - combine fpmPoolRssMb + simulatedMb (APCu memory pressure allocations)
+  // Color based on percentage of total system memory
   const memoryValue = document.getElementById('memory-value');
   if (memoryValue) {
     const fpmRss = metrics.memory?.fpmPoolRssMb || 0;
     const simulated = metrics.memory?.simulatedMb || 0;
-    memoryValue.textContent = (fpmRss + simulated).toFixed(0);
+    const usedMb = fpmRss + simulated;
+    const totalMb = metrics.memory?.totalSystemMb || 4096;
+    const memoryPercent = (usedMb / totalMb) * 100;
+    memoryValue.textContent = usedMb.toFixed(0);
+    memoryValue.style.color = getStressColor(memoryPercent, 60, 80);
   }
 
   // Memory total (system RAM)
@@ -166,16 +186,25 @@ function updateDashboard(metrics) {
   }
 
   // Worker/Eventloop value (PHP: active workers)
+  // Color based on ratio of busy workers to active workers
   const eventloopValue = document.getElementById('eventloop-value');
   if (eventloopValue) {
-    const workers = metrics.process?.activeWorkers || 0;
-    eventloopValue.textContent = workers + ' busy';
+    const busyWorkers = metrics.process?.activeWorkers || 0;
+    const totalWorkers = metrics.crashTracking?.activeWorkerCount || busyWorkers || 1;
+    const workerPercent = totalWorkers > 0 ? (busyWorkers / totalWorkers) * 100 : 0;
+    eventloopValue.textContent = busyWorkers + ' busy';
+    eventloopValue.style.color = getStressColor(workerPercent, 50, 80);
   }
 
   // RSS value - use FPM pool total RSS for accurate pool-wide measurement
+  // Color based on percentage of total system memory
   const rssValue = document.getElementById('rss-value');
   if (rssValue) {
-    rssValue.textContent = (metrics.memory?.fpmPoolRssMb || metrics.memory?.rssMb || 0).toFixed(0);
+    const rssMb = metrics.memory?.fpmPoolRssMb || metrics.memory?.rssMb || 0;
+    const totalMb = metrics.memory?.totalSystemMb || 4096;
+    const rssPercent = (rssMb / totalMb) * 100;
+    rssValue.textContent = rssMb.toFixed(0);
+    rssValue.style.color = getStressColor(rssPercent, 60, 80);
   }
 
   // Server connection status
@@ -791,6 +820,17 @@ async function loadEnvironmentInfo() {
       const skuBadge = document.getElementById('sku-badge');
       if (skuBadge && data.environment) {
         skuBadge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
+      }
+
+      // Log startup message with SKU and worker info
+      if (typeof addEventToLog === 'function' && data.environment) {
+        const sku = data.environment.sku || 'Local';
+        const hostname = data.environment.hostname;
+        if (sku === 'Local' || !hostname) {
+          addEventToLog({ level: 'info', message: `Application is currently running on Local` });
+        } else {
+          addEventToLog({ level: 'info', message: `Application is currently running on ${sku} SKU on worker ${hostname}` });
+        }
       }
 
       const envContainer = document.getElementById('environment-info');
