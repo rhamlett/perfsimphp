@@ -458,15 +458,11 @@ function getEventIconAndClass(event) {
 
 /**
  * Returns an icon for the event level (fallback for system messages).
+ * Returns empty string since system messages should not have icons.
  */
 function getEventLevelIcon(level) {
-  switch (level) {
-    case 'error': return '❌';
-    case 'warning': return '⚠️';
-    case 'success': return '✅';
-    case 'info':
-    default: return '';
-  }
+  // System messages don't get icons - only simulation events do
+  return '';
 }
 
 /**
