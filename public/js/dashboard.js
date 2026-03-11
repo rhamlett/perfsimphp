@@ -348,13 +348,14 @@ function renderEventLog(events) {
 
   container.innerHTML = displayEvents.map(event => {
     const time = formatEventTime(event.timestamp);
-    const levelClass = event.level || 'info';
-    const levelIcon = getEventLevelIcon(event.level);
+    const { icon, cssClass } = getEventIconAndClass(event);
+    // Fall back to level icon if no simulation-specific icon
+    const displayIcon = icon || getEventLevelIcon(event.level);
     const pidSuffix = event.workerPid ? ` <span class="event-pid">[w${event.workerPid}]</span>` : '';
 
-    return `<div class="event-log-entry ${levelClass}">
+    return `<div class="event-log-entry ${cssClass}">
       <span class="event-time">${time}</span>
-      <span class="event-icon">${levelIcon}</span>
+      ${displayIcon ? `<span class="event-icon">${displayIcon}</span>` : ''}
       <span class="event-message">${escapeHtml(event.message)}${pidSuffix}</span>
     </div>`;
   }).join('');
@@ -372,13 +373,14 @@ function renderLocalEventLog() {
   // Prepend new events
   const latestEvent = eventLog[0];
   const time = formatEventTime(latestEvent.timestamp);
-  const levelClass = latestEvent.level || 'info';
-  const levelIcon = getEventLevelIcon(latestEvent.level);
+  const { icon, cssClass } = getEventIconAndClass(latestEvent);
+  // Fall back to level icon if no simulation-specific icon
+  const displayIcon = icon || getEventLevelIcon(latestEvent.level);
   const pidSuffix = latestEvent.workerPid ? ` <span class="event-pid">[w${latestEvent.workerPid}]</span>` : '';
 
-  const entryHtml = `<div class="event-log-entry ${levelClass}">
+  const entryHtml = `<div class="event-log-entry ${cssClass}">
     <span class="event-time">${time}</span>
-    <span class="event-icon">${levelIcon}</span>
+    ${displayIcon ? `<span class="event-icon">${displayIcon}</span>` : ''}
     <span class="event-message">${escapeHtml(latestEvent.message)}${pidSuffix}</span>
   </div>`;
 
@@ -405,7 +407,57 @@ function formatEventTime(timestamp) {
 }
 
 /**
- * Returns an icon for the event level.
+ * Returns an icon and CSS class for an event based on its message content.
+ * @param {Object} event - Event object with message and level
+ * @returns {{ icon: string, cssClass: string }}
+ */
+function getEventIconAndClass(event) {
+  const msg = (event.message || '').toLowerCase();
+  
+  // CPU Stress events (blue)
+  if (msg.includes('cpu stress') || msg.includes('cpu_stress')) {
+    return { icon: '🔥', cssClass: 'event-cpu' };
+  }
+  
+  // Memory Pressure events (green)
+  if (msg.includes('memory') && (msg.includes('allocated') || msg.includes('released') || msg.includes('pressure'))) {
+    return { icon: '📊', cssClass: 'event-memory' };
+  }
+  
+  // Thread/Worker Blocking events (purple)
+  if (msg.includes('blocking') || msg.includes('request thread') || msg.includes('worker') && msg.includes('block')) {
+    return { icon: '🧵', cssClass: 'event-thread' };
+  }
+  
+  // Crash events (red)
+  if (msg.includes('crash') || msg.includes('failfast') || msg.includes('fatal') || msg.includes('stack overflow') || msg.includes('oom')) {
+    return { icon: '💥', cssClass: 'event-crash' };
+  }
+  
+  // Application restart/PID change (red)
+  if (msg.includes('restart') || msg.includes('pid') && msg.includes('change')) {
+    return { icon: '🔄', cssClass: 'event-crash' };
+  }
+  
+  // Load test stats (PHP purple)
+  if (msg.includes('load test') || msg.includes('loadtest')) {
+    return { icon: '📈', cssClass: 'event-loadtest' };
+  }
+  
+  // Server responsiveness events (no icons - system messages)
+  if (msg.includes('responsive') || msg.includes('unresponsive')) {
+    if (msg.includes('unresponsive') || msg.includes('blocked')) {
+      return { icon: '', cssClass: 'warning' };
+    }
+    return { icon: '', cssClass: 'success' };
+  }
+  
+  // Default: use level-based styling (no simulation icon)
+  return { icon: '', cssClass: event.level || 'info' };
+}
+
+/**
+ * Returns an icon for the event level (fallback for system messages).
  */
 function getEventLevelIcon(level) {
   switch (level) {
@@ -413,7 +465,7 @@ function getEventLevelIcon(level) {
     case 'warning': return '⚠️';
     case 'success': return '✅';
     case 'info':
-    default: return 'ℹ️';
+    default: return '';
   }
 }
 
@@ -822,16 +874,8 @@ async function loadEnvironmentInfo() {
         skuBadge.textContent = 'SKU: ' + (data.environment.sku || 'Local');
       }
 
-      // Log startup message with SKU and worker info
-      if (typeof addEventToLog === 'function' && data.environment) {
-        const sku = data.environment.sku || 'Local';
-        const hostname = data.environment.hostname;
-        if (sku === 'Local' || !hostname) {
-          addEventToLog({ level: 'info', message: `Application is currently running on Local` });
-        } else {
-          addEventToLog({ level: 'info', message: `Application is currently running on ${sku} SKU on worker ${hostname}` });
-        }
-      }
+      // Store environment data globally for polling-client to use
+      window.cachedEnvironment = data.environment;
 
       const envContainer = document.getElementById('environment-info');
       if (envContainer && data.environment) {

@@ -165,7 +165,7 @@ function checkLoadTestStatsLog(loadTestActive, concurrent) {
       const maxLatency = Math.max(...values);
       addEventToLog({
         level: 'info',
-        message: `📊 Load Test Stats (60s): avg ${avgLatency.toFixed(0)}ms, max ${maxLatency.toFixed(0)}ms, ${values.length} samples`
+        message: `Load Test Stats (60s): avg ${avgLatency.toFixed(0)}ms, max ${maxLatency.toFixed(0)}ms, ${values.length} samples`
       });
     }
   }
@@ -363,7 +363,7 @@ function onProbeLatency(data) {
         serverResponsiveness.lastWarningTime = now;
         addEventToLog({
           level: 'warning',
-          message: '⚠️ Server unresponsive - PHP-FPM workers may be blocked'
+          message: 'Server unresponsive - PHP-FPM workers may be blocked'
         });
       }
     }

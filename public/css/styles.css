@@ -1522,10 +1522,18 @@ button:disabled {
   border-bottom: none;
 }
 
+/* Basic level colors */
 .event-log-entry.info { color: var(--color-primary); }
 .event-log-entry.success { color: var(--color-success); }
 .event-log-entry.warning { color: var(--color-warning); }
 .event-log-entry.error { color: var(--color-danger); }
+
+/* Simulation-themed event colors (match tile/control border colors) */
+.event-log-entry.event-cpu { color: var(--color-cpu); }       /* Blue - CPU stress */
+.event-log-entry.event-memory { color: var(--color-memory); } /* Green - Memory pressure */
+.event-log-entry.event-thread { color: var(--color-eventloop); } /* Purple - Thread blocking */
+.event-log-entry.event-loadtest { color: var(--color-primary); } /* PHP purple - Load test stats */
+.event-log-entry.event-crash { color: var(--color-danger); }  /* Red - Crash events */
 
 .event-time {
   color: var(--color-text-muted);

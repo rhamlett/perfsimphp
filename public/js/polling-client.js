@@ -321,11 +321,49 @@ function initializeEventLog() {
       if (typeof addEventToLog === 'function') {
         addEventToLog({ level: 'info', message: 'Dashboard initialized' });
         addEventToLog({ level: 'success', message: 'Connected to metrics hub' });
+        
+        // Add environment/SKU message
+        addEnvironmentMessage();
       }
     })
     .catch((error) => {
       console.error('[polling-client] Event log init failed:', error.message);
     });
+}
+
+/**
+ * Adds the environment/SKU startup message to the event log.
+ * Uses cached environment data if available, otherwise fetches it.
+ */
+function addEnvironmentMessage() {
+  if (window.cachedEnvironment) {
+    logEnvironmentMessage(window.cachedEnvironment);
+  } else {
+    // Fetch environment data if not cached yet
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(data => {
+        if (data.environment) {
+          window.cachedEnvironment = data.environment;
+          logEnvironmentMessage(data.environment);
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+/**
+ * Logs the environment message with SKU and worker info.
+ */
+function logEnvironmentMessage(env) {
+  if (typeof addEventToLog !== 'function') return;
+  const sku = env.sku || 'Local';
+  const hostname = env.hostname;
+  if (sku === 'Local' || !hostname) {
+    addEventToLog({ level: 'info', message: 'Application is currently running on Local' });
+  } else {
+    addEventToLog({ level: 'info', message: `Application is currently running on ${sku} SKU on worker ${hostname}` });
+  }
 }
 
 /**
