@@ -305,6 +305,32 @@ php -S localhost:8080 -t public public/index.php
 └── default                # Nginx configuration
 ```
 
+## ⚙️ Configuration
+
+The application supports configuration via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 8080 | HTTP server port |
+| `METRICS_INTERVAL_MS` | 500 | Metrics collection interval (ms) |
+| `MAX_SIMULATION_DURATION_SECONDS` | 86400 | Max simulation duration |
+| `MAX_MEMORY_ALLOCATION_MB` | 65536 | Max memory allocation per simulation |
+| `EVENT_LOG_MAX_ENTRIES` | 100 | Event log ring buffer size |
+| `HEALTH_PROBE_RATE` | 200 | Health probe interval in ms (min: 100) |
+| `PAGE_FOOTER` | - | Custom footer HTML |
+
+### Setting Environment Variables (Azure CLI)
+
+```bash
+# Set health probe rate to 400ms (reduces probe overhead for profiling)
+az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --settings HEALTH_PROBE_RATE=400
+
+# Set multiple settings
+az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --settings HEALTH_PROBE_RATE=400 MAX_SIMULATION_DURATION_SECONDS=300
+```
+
 ## 📝 License
 
 This project is for educational and training purposes. Created by [SpecKit](https://speckit.org/) in collaboration with Richard Hamlett (Microsoft).

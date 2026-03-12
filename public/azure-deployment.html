@@ -643,6 +643,35 @@ az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GRO
   --settings 'PAGE_FOOTER=Created by &lt;a href="https://speckit.org/" target="_blank"&gt;SpecKit&lt;/a&gt;'</code></pre>
 
       <p><strong>Note:</strong> If <code>PAGE_FOOTER</code> is not set, the footer will display only the app description and build timestamp.</p>
+
+      <h3>Health Probe Rate (HEALTH_PROBE_RATE)</h3>
+      <p>Controls the interval between health probe requests. Reducing probe frequency can help when profiling the application by producing cleaner traces with less probe overhead.</p>
+      
+      <table class="info-table">
+        <tr><th>Setting</th><th>Value</th></tr>
+        <tr><td>Default</td><td>200ms (5 probes/sec)</td></tr>
+        <tr><td>Minimum</td><td>100ms (values below this are clamped)</td></tr>
+        <tr><td>Recommended for profiling</td><td>400-500ms</td></tr>
+      </table>
+      
+      <p>The latency chart continues to update at 100ms intervals using interpolation to maintain visual smoothness regardless of the actual probe rate.</p>
+
+      <h4>Setting via Azure CLI</h4>
+      <pre><code># Set probe rate to 400ms (reduces overhead for profiling)
+az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --settings HEALTH_PROBE_RATE=400</code></pre>
+
+      <h3>All Environment Variables</h3>
+      <table class="info-table">
+        <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+        <tr><td><code>PORT</code></td><td>8080</td><td>HTTP server port</td></tr>
+        <tr><td><code>METRICS_INTERVAL_MS</code></td><td>500</td><td>Metrics collection interval (ms)</td></tr>
+        <tr><td><code>MAX_SIMULATION_DURATION_SECONDS</code></td><td>86400</td><td>Max simulation duration</td></tr>
+        <tr><td><code>MAX_MEMORY_ALLOCATION_MB</code></td><td>65536</td><td>Max memory allocation per simulation</td></tr>
+        <tr><td><code>EVENT_LOG_MAX_ENTRIES</code></td><td>100</td><td>Event log ring buffer size</td></tr>
+        <tr><td><code>HEALTH_PROBE_RATE</code></td><td>200</td><td>Health probe interval in ms (min: 100)</td></tr>
+        <tr><td><code>PAGE_FOOTER</code></td><td>-</td><td>Custom footer HTML</td></tr>
+      </table>
     </section>
 
     <section id="quick-reference" class="card">

@@ -22,6 +22,9 @@
  *     MAX_MEMORY_ALLOCATION_MB        → Max single memory allocation (default: 65536)
  *     EVENT_LOG_MAX_ENTRIES           → Ring buffer size (default: 100)
  *
+ *   Health Probing:
+ *     HEALTH_PROBE_RATE               → Probe interval in ms (default: 200, min: 100)
+ *
  *   Defaults:
  *     DEFAULT_CPU_LEVEL              → Default CPU stress level ('moderate')
  *     DEFAULT_CPU_DURATION_SECONDS   → Default CPU stress duration (30)
@@ -98,6 +101,17 @@ class Config
     public static function eventLogMaxEntries(): int
     {
         return self::intEnv('EVENT_LOG_MAX_ENTRIES', 100);
+    }
+
+    /**
+     * Health probe interval in milliseconds.
+     * Default: 200ms (5 probes/sec). Minimum: 100ms (clamped).
+     * Reduces probe overhead while maintaining chart smoothness via interpolation.
+     */
+    public static function healthProbeRateMs(): int
+    {
+        $value = self::intEnv('HEALTH_PROBE_RATE', 200);
+        return max(100, $value); // Safety floor: minimum 100ms
     }
 
     /** Application version */
@@ -207,6 +221,7 @@ class Config
             'maxSimulationDurationSeconds' => self::maxSimulationDurationSeconds(),
             'maxMemoryAllocationMb' => self::maxMemoryAllocationMb(),
             'eventLogMaxEntries' => self::eventLogMaxEntries(),
+            'latencyProbeIntervalMs' => self::healthProbeRateMs(),
         ];
     }
 }

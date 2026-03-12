@@ -49,6 +49,7 @@ class HealthController
             'runtime' => 'PHP ' . PHP_VERSION,
             'environment' => self::environment(),
             'pageFooter' => $pageFooter ?: null,
+            'latencyProbeIntervalMs' => Config::healthProbeRateMs(),
         ];
     }
 

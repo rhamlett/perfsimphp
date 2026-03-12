@@ -74,10 +74,11 @@ const maxReconnectAttempts = 10;
 // Polling intervals (milliseconds)
 const METRICS_POLL_INTERVAL = 250;
 const EVENTS_POLL_INTERVAL = 2000;
-// Internal batch probe: 1 request/sec to AppLens, server does 10 internal probes at 100ms intervals
-// Results are dispatched to chart at 100ms intervals for smooth visualization
-// PROBE_POLL_INTERVAL is 0 because server response time (~1s) provides natural pacing
-const PROBE_POLL_INTERVAL = 0;
+// Chart update interval - latency chart still updates at 100ms for smoothness
+// Uses interpolation when PROBE_POLL_INTERVAL is larger
+const LATENCY_CHART_UPDATE_INTERVAL = 100;
+// Configurable probe interval (fetched from server, default 200ms, min 100ms)
+let PROBE_POLL_INTERVAL = 200;
 const INTERNAL_PROBE_COUNT = 10;
 const INTERNAL_PROBE_INTERVAL = 100;
 
@@ -136,7 +137,7 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
 
 /**
  * Initializes the polling client.
- * Tests connectivity first, then starts polling loops.
+ * Tests connectivity first, fetches probe configuration, then starts polling loops.
  */
 function initSocket() {
   const statusEl = document.getElementById('connection-status');
@@ -145,14 +146,21 @@ function initSocket() {
     statusEl.className = 'status-reconnecting';
   }
 
-  // Test connectivity with a health check
+  // Test connectivity with a health check and fetch probe configuration
   fetch('/api/health')
     .then(response => {
-      if (response.ok) {
-        onConnected();
-      } else {
-        onConnectionFailed();
+      if (!response.ok) {
+        throw new Error('Health check failed');
       }
+      return response.json();
+    })
+    .then(data => {
+      // Configure probe interval from server (default 200ms, min 100ms enforced server-side)
+      if (data.latencyProbeIntervalMs && typeof data.latencyProbeIntervalMs === 'number') {
+        PROBE_POLL_INTERVAL = Math.max(100, data.latencyProbeIntervalMs);
+        console.log('[polling-client] Probe interval configured:', PROBE_POLL_INTERVAL + 'ms');
+      }
+      onConnected();
     })
     .catch(() => {
       onConnectionFailed();
@@ -239,6 +247,7 @@ function onPollFailure() {
     // Probe polling will self-pause on failures via consecutiveProbeFailures tracking
     if (metricsPollTimer) { clearInterval(metricsPollTimer); metricsPollTimer = null; }
     if (eventsPollTimer) { clearInterval(eventsPollTimer); eventsPollTimer = null; }
+    if (chartUpdateTimer) { clearInterval(chartUpdateTimer); chartUpdateTimer = null; }
     
     reconnectAttempts = 0;
     setTimeout(initSocket, 1000);
@@ -481,11 +490,16 @@ function pollEventsOnce() {
 
 // Flag to prevent overlapping probes
 let probeInFlight = false;
+// Track last successful probe for interpolation
+let lastProbeData = null;
+let lastProbeTimestamp = 0;
+// Timer for chart updates (runs at 100ms regardless of probe rate)
+let chartUpdateTimer = null;
 
 /**
- * Starts probe polling every 100ms via direct frontend requests.
- * Measures full round-trip latency including Azure Front Door and stamp frontend.
- * Uses a flag to prevent pile-up if requests take longer than 100ms.
+ * Starts probe polling at the configured interval (default 200ms).
+ * Also starts a separate chart update timer at 100ms for smooth visualization.
+ * Uses interpolation to maintain chart smoothness when probe rate is slower.
  * 
  * IMPORTANT: During load testing, direct probing is SKIPPED to prevent browser
  * connection pool exhaustion. Load test latencies are sampled server-side and
@@ -493,10 +507,56 @@ let probeInFlight = false;
  */
 function startProbePolling() {
   if (probePollTimer) clearInterval(probePollTimer);
+  if (chartUpdateTimer) clearInterval(chartUpdateTimer);
   
   probeInFlight = false;
+  lastProbeData = null;
+  lastProbeTimestamp = 0;
+  
+  // Start actual probing at configured interval (default 200ms)
   probeOnce();
-  probePollTimer = setInterval(probeOnce, INTERNAL_PROBE_INTERVAL);
+  probePollTimer = setInterval(probeOnce, PROBE_POLL_INTERVAL);
+  
+  // Start chart updates at 100ms for smooth visualization
+  // This dispatches interpolated/repeated values when probe rate is slower
+  chartUpdateTimer = setInterval(dispatchChartUpdate, LATENCY_CHART_UPDATE_INTERVAL);
+}
+
+/**
+ * Dispatches chart updates at 100ms intervals.
+ * Uses interpolation when the probe rate is slower than chart update rate.
+ * Simply repeats the last known value to maintain chart progression.
+ */
+function dispatchChartUpdate() {
+  // Skip if no probe data available yet
+  if (!lastProbeData) return;
+  
+  // Skip chart updates during load test (metrics provide the data)
+  if (loadTestActive) return;
+  
+  const now = Date.now();
+  const timeSinceLastProbe = now - lastProbeTimestamp;
+  
+  // If probe rate is faster than or equal to chart update rate, 
+  // probeOnce already dispatches via onProbeLatency, no interpolation needed
+  if (PROBE_POLL_INTERVAL <= LATENCY_CHART_UPDATE_INTERVAL) return;
+  
+  // Interpolation: dispatch the last known value at chart update intervals
+  // This fills in the gaps between slower probe measurements
+  // Only dispatch if we haven't received a fresh probe recently (within last 50ms)
+  // to avoid double-dispatching when probe and chart timer align
+  if (timeSinceLastProbe > 50 && timeSinceLastProbe < PROBE_POLL_INTERVAL + 100) {
+    if (typeof onProbeLatency === 'function') {
+      onProbeLatency({
+        latencyMs: lastProbeData.latencyMs,
+        timestamp: now,
+        success: true,
+        loadTestActive: false,
+        loadTestConcurrent: 0,
+        source: 'interpolated',
+      });
+    }
+  }
 }
 
 /**
@@ -561,6 +621,10 @@ function probeOnce() {
       consecutiveProbeFailures = 0;
       onPollSuccess();
 
+      // Save probe data for interpolation
+      lastProbeData = { latencyMs: latency };
+      lastProbeTimestamp = Date.now();
+
       if (typeof onProbeLatency === 'function') {
         onProbeLatency({
           latencyMs: latency,
@@ -608,6 +672,7 @@ function stopAllPolling() {
   if (metricsPollTimer) { clearInterval(metricsPollTimer); metricsPollTimer = null; }
   if (eventsPollTimer) { clearInterval(eventsPollTimer); eventsPollTimer = null; }
   if (probePollTimer) { clearInterval(probePollTimer); probePollTimer = null; }
+  if (chartUpdateTimer) { clearInterval(chartUpdateTimer); chartUpdateTimer = null; }
 }
 
 /**
