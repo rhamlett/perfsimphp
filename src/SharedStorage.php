@@ -170,8 +170,9 @@ class SharedStorage
     public static function getInfo(): array
     {
         $redis = self::getRedis();
+        $backend = $redis ? 'redis' : (self::hasApcu() ? 'apcu' : 'file');
         return [
-            'backend' => self::hasApcu() ? 'apcu' : 'file',
+            'backend' => $backend,
             'crossPoolBackend' => $redis ? 'redis' : 'file',
             'apcuAvailable' => self::hasApcu(),
             'apcuFunctionExists' => function_exists('apcu_fetch'),
@@ -184,6 +185,7 @@ class SharedStorage
 
     /**
      * Get a value from shared storage.
+     * Uses Redis when available (cross-pool compatible), otherwise APCu or file.
      *
      * @param string $key Storage key
      * @param mixed $default Default value if key not found
@@ -191,6 +193,21 @@ class SharedStorage
      */
     public static function get(string $key, mixed $default = null): mixed
     {
+        // Redis first - ensures cross-pool consistency
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $value = $redis->get('shared:' . $key);
+                if ($value === false) {
+                    return $default;
+                }
+                $decoded = json_decode($value, true);
+                return $decoded ?? $default;
+            } catch (\Throwable $e) {
+                // Fall through to APCu/file
+            }
+        }
+        
         if (self::hasApcu()) {
             $success = false;
             $value = \apcu_fetch($key, $success);
@@ -202,6 +219,7 @@ class SharedStorage
 
     /**
      * Store a value in shared storage.
+     * Uses Redis when available (cross-pool compatible), otherwise APCu or file.
      *
      * @param string $key Storage key
      * @param mixed $value Value to store (must be serializable)
@@ -209,6 +227,22 @@ class SharedStorage
      */
     public static function set(string $key, mixed $value, int $ttl = 0): void
     {
+        // Redis first - ensures cross-pool consistency
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $encoded = json_encode($value);
+                if ($ttl > 0) {
+                    $redis->setex('shared:' . $key, $ttl, $encoded);
+                } else {
+                    $redis->set('shared:' . $key, $encoded);
+                }
+                return;
+            } catch (\Throwable $e) {
+                // Fall through to APCu/file
+            }
+        }
+        
         if (self::hasApcu()) {
             \apcu_store($key, $value, $ttl);
             return;
@@ -219,11 +253,23 @@ class SharedStorage
 
     /**
      * Delete a value from shared storage.
+     * Uses Redis when available (cross-pool compatible), otherwise APCu or file.
      *
      * @param string $key Storage key
      */
     public static function delete(string $key): void
     {
+        // Redis first - ensures cross-pool consistency
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $redis->del('shared:' . $key);
+                return;
+            } catch (\Throwable $e) {
+                // Fall through to APCu/file
+            }
+        }
+        
         if (self::hasApcu()) {
             \apcu_delete($key);
             return;
@@ -235,7 +281,7 @@ class SharedStorage
     /**
      * Atomically add a value only if the key doesn't exist.
      * Returns true if the value was added, false if the key already existed.
-     * This is truly atomic and prevents race conditions.
+     * Uses Redis when available (cross-pool compatible), otherwise APCu or file.
      *
      * @param string $key Storage key
      * @param mixed $value Value to store
@@ -244,6 +290,22 @@ class SharedStorage
      */
     public static function addOnce(string $key, mixed $value, int $ttl = 0): bool
     {
+        // Redis first - ensures cross-pool consistency
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $encoded = json_encode($value);
+                // SETNX returns true if key was set (didn't exist)
+                $result = $redis->setnx('shared:' . $key, $encoded);
+                if ($result && $ttl > 0) {
+                    $redis->expire('shared:' . $key, $ttl);
+                }
+                return (bool) $result;
+            } catch (\Throwable $e) {
+                // Fall through to APCu/file
+            }
+        }
+        
         if (self::hasApcu()) {
             // apcu_add returns true only if the key didn't exist
             return \apcu_add($key, $value, $ttl);
@@ -254,6 +316,7 @@ class SharedStorage
 
     /**
      * Atomically modify a value (read-modify-write with locking).
+     * Uses Redis when available (cross-pool compatible), otherwise APCu or file.
      *
      * @param string $key Storage key
      * @param callable $modifier Function that takes current value and returns new value
@@ -261,6 +324,36 @@ class SharedStorage
      */
     public static function modify(string $key, callable $modifier, mixed $default = null): mixed
     {
+        // Redis first - ensures cross-pool consistency with optimistic locking
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $redisKey = 'shared:' . $key;
+                
+                // Optimistic locking with WATCH
+                $maxRetries = 3;
+                for ($i = 0; $i < $maxRetries; $i++) {
+                    $redis->watch($redisKey);
+                    
+                    $value = $redis->get($redisKey);
+                    $current = ($value !== false) ? json_decode($value, true) : $default;
+                    $newValue = $modifier($current ?? $default);
+                    
+                    $redis->multi();
+                    $redis->set($redisKey, json_encode($newValue));
+                    $result = $redis->exec();
+                    
+                    if ($result !== false) {
+                        return $newValue;
+                    }
+                    // Transaction failed due to concurrent modification, retry
+                }
+                // Fall through to APCu/file after max retries
+            } catch (\Throwable $e) {
+                // Fall through to APCu/file
+            }
+        }
+        
         if (self::hasApcu()) {
             // APCu doesn't have native CAS for complex types, but since PHP-FPM
             // workers handle one request at a time, this is effectively atomic
@@ -515,5 +608,23 @@ class SharedStorage
             }
         }
         return self::fileModify($key, $modifier, $default);
+    }
+
+    /**
+     * Delete a value from cross-pool storage.
+     * Uses Redis if available, falls back to file-based.
+     */
+    public static function crossPoolDelete(string $key): void
+    {
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $redis->del('crosspool:' . $key);
+                return;
+            } catch (\Throwable $e) {
+                // Fall through to file-based
+            }
+        }
+        self::fileDelete($key);
     }
 }
