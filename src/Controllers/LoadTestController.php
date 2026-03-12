@@ -11,14 +11,17 @@
  * Designed for Azure Load Testing, JMeter, k6, Gatling.
  *
  * PARAMETERS:
- *   - workMs (int)    : Duration of CPU work in ms (default: 100, max: 5000)
- *   - memoryKb (int)  : Memory to allocate in KB (default: 5000, max: 50000)
- *   - holdMs (int)    : Hold memory after CPU work in ms (default: 500, max: 5000)
+ *   - workMs (int)       : Duration of CPU work in ms (default: 100, max: 5000)
+ *   - memoryKb (int)     : Memory to allocate in KB (default: 5000, max: 50000)
+ *   - holdMs (int)       : Hold memory after CPU work in ms (default: 500, max: 5000)
+ *   - errorAfter (int)   : Throw random error if request exceeds this many seconds (default: 120, max: 300, 0 = disabled)
+ *   - errorPercent (int) : Percentage chance to throw error when threshold exceeded (default: 20, range: 0-100)
  *
  * EXAMPLES:
  *   GET /api/loadtest
  *   GET /api/loadtest?workMs=200
  *   GET /api/loadtest?workMs=50&memoryKb=10000&holdMs=1000
+ *   GET /api/loadtest?workMs=100&errorAfter=2&errorPercent=50
  *
  * @module src/Controllers/LoadTestController.php
  */
@@ -48,6 +51,14 @@ class LoadTestController
         }
         if (isset($_GET['holdMs']) && is_numeric($_GET['holdMs'])) {
             $request['holdMs'] = (int) $_GET['holdMs'];
+        }
+        
+        // Chaos error injection parameters
+        if (isset($_GET['errorAfter']) && is_numeric($_GET['errorAfter'])) {
+            $request['errorAfter'] = (int) $_GET['errorAfter'];
+        }
+        if (isset($_GET['errorPercent']) && is_numeric($_GET['errorPercent'])) {
+            $request['errorPercent'] = (int) $_GET['errorPercent'];
         }
         
         // Legacy parameter support

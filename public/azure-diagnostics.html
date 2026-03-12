@@ -860,7 +860,7 @@ script_filename = /home/site/wwwroot/public/index.php
         <li>Perform real CPU work using cryptographic hashing (hash_pbkdf2)</li>
         <li>Allocate real memory buffers held for the entire request duration</li>
         <li>Keep requests short (max 5 seconds) to prevent FPM pool exhaustion</li>
-        <li>Log statistics every 60 seconds (request count, avg/max latency, RPS)</li>
+        <li>Log statistics every 60 seconds (request count, avg/max latency, RPS, error %)</li>
       </ul>
 
       <h3>Setting Up Azure Load Testing</h3>
@@ -887,6 +887,8 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
         <li><code>workMs</code> - Duration of CPU work in milliseconds (default: 100, max: 5000)</li>
         <li><code>memoryKb</code> - Memory buffer size in kilobytes (default: 5000 = 5MB, max: 50000 = 50MB)</li>
         <li><code>holdMs</code> - Time to hold memory after CPU work in milliseconds (default: 500, max: 5000). Ensures memory is visible in metrics.</li>
+        <li><code>errorAfter</code> - Throw random error if request exceeds this many seconds (default: 120, max: 300, use 0 to disable)</li>
+        <li><code>errorPercent</code> - Percentage chance to throw error when errorAfter threshold exceeded (default: 20, range: 0-100)</li>
       </ul>
 
       <ol start="3">
@@ -925,17 +927,30 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=1000&amp;memoryKb=50000</
 
       <h4>3. Event Log Statistics</h4>
       <p>Every 60 seconds during load testing, statistics are logged to the event log:</p>
-      <pre><code>📊 Load Test (60s): 1523 requests, 105ms avg, 287ms max, 25.4 RPS</code></pre>
+      <pre><code>📊 Load test period stats: 1523 requests, 105.5 avg ms, 287 max ms, 25.38 RPS, 0.0% errors</code></pre>
       <p>View these in the dashboard's Event Log panel during testing.</p>
 
       <h3>Request Parameters Reference</h3>
-      <p>The endpoint uses three parameters:</p>
+      <p>The endpoint uses five parameters:</p>
       <table class="comparison-table">
         <tr><th>Parameter</th><th>Default</th><th>Max</th><th>Purpose</th></tr>
         <tr><td><code>workMs</code></td><td>100</td><td>5000</td><td>Duration of CPU work (ms). Controls how long each FPM worker is occupied doing CPU work.</td></tr>
         <tr><td><code>memoryKb</code></td><td>5000</td><td>50000</td><td>Memory buffer size (KB). Allocated at start, held until request ends.</td></tr>
         <tr><td><code>holdMs</code></td><td>500</td><td>5000</td><td>Time to hold memory after CPU work (ms). Ensures metrics polling captures memory usage.</td></tr>
+        <tr><td><code>errorAfter</code></td><td>120</td><td>300</td><td>Throw random error if request exceeds this many seconds (0 = disabled).</td></tr>
+        <tr><td><code>errorPercent</code></td><td>20</td><td>100</td><td>Percentage chance to throw error when errorAfter threshold exceeded.</td></tr>
       </table>
+
+      <h3>Chaos Error Injection</h3>
+      <p>For realistic load testing with unpredictable failures, use <code>errorAfter</code> and <code>errorPercent</code>:</p>
+      <ul>
+        <li><strong>Purpose:</strong> Create chaotic, unpredictable errors during load testing for more realistic diagnostics</li>
+        <li><strong>Timing:</strong> Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)</li>
+        <li><strong>Error Types:</strong> <code>RuntimeException</code>, <code>LogicException</code>, <code>InvalidArgumentException</code>, <code>OutOfBoundsException</code>, <code>UnexpectedValueException</code></li>
+        <li><strong>Stats:</strong> Error statistics are tracked and included in the 60-second stats summary</li>
+      </ul>
+      <p>Example: <code>/api/loadtest?workMs=100&amp;holdMs=2000&amp;errorAfter=2&amp;errorPercent=50</code></p>
+      <p>This configuration has a 50% chance to throw a random error if the request takes over 2 seconds.</p>
       <div class="alert-box info">
         <strong>Legacy Support:</strong> The old parameters <code>targetDurationMs</code> and <code>memorySizeKb</code> are still accepted for backward compatibility and map to <code>workMs</code> and <code>memoryKb</code> respectively.
       </div>

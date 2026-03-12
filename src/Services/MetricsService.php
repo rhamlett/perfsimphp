@@ -80,6 +80,7 @@ use PerfSimPhp\Services\SimulationTrackerService;
 use PerfSimPhp\Services\MemoryPressureService;
 use PerfSimPhp\Services\BlockingService;
 use PerfSimPhp\Services\CrashTrackingService;
+use PerfSimPhp\Services\LoadTestService;
 
 class MetricsService
 {
@@ -100,6 +101,7 @@ class MetricsService
             'simulations' => self::getSimulationsStatus(),
             'crashTracking' => self::getCrashTrackingMetrics(),
             'workerInfo' => $workerInfo,
+            'loadTestLatencies' => LoadTestService::getSampledLatencies(0),
         ];
     }
 

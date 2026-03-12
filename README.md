@@ -212,6 +212,8 @@ Dedicated endpoint for Azure Load Testing:
 ```
 GET /api/loadtest
 GET /api/loadtest?workMs=100&memoryKb=5000&holdMs=500
+GET /api/loadtest?workMs=100&errorAfter=2&errorPercent=50
+GET /api/loadtest?errorAfter=0
 GET /api/loadtest/stats
 ```
 
@@ -221,6 +223,16 @@ GET /api/loadtest/stats
 | `workMs` | 100 | 5000 | Duration of CPU work in milliseconds (uses hash_pbkdf2) |
 | `memoryKb` | 5000 | 50000 | Memory to allocate per request in KB |
 | `holdMs` | 500 | 5000 | Time to hold memory after CPU work (ms). Ensures metrics polling captures memory usage. |
+| `errorAfter` | 120 | 300 | Throw random error if request exceeds this many seconds (0 = disabled) |
+| `errorPercent` | 20 | 100 | Percentage chance to throw error when errorAfter threshold exceeded |
+
+**Chaos Error Injection:**
+For realistic load testing with unpredictable errors, use `errorAfter` and `errorPercent`:
+- By default, requests over 120s have a 20% chance to throw a random error
+- `errorAfter=2&errorPercent=50` — 50% chance of random error if request takes over 2 seconds
+- `errorAfter=0` — Disable chaos errors entirely
+- Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)
+- Error types include `RuntimeException`, `LogicException`, `InvalidArgumentException`, etc.
 
 **Design Philosophy:**
 - Each request does a SHORT burst of real work (~100ms)
@@ -231,7 +243,7 @@ GET /api/loadtest/stats
 
 **Stats Logging:** Every 60 seconds, a summary is logged to the event log:
 ```
-📊 Load Test (60s): 1523 requests, 112ms avg, 426ms max, 25.4 RPS
+📊 Load test period stats: 1523 requests, 112.5 avg ms, 426 max ms, 25.38 RPS, 0.0% errors
 ```
 
 **Legacy Parameters:** `targetDurationMs` and `memorySizeKb` are still supported as aliases for backwards compatibility.

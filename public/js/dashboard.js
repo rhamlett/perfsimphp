@@ -84,6 +84,22 @@ function initDashboard() {
     if (typeof updateCharts === 'function') {
       updateCharts(metrics);
     }
+    
+    // Dispatch sampled load test latencies to the latency chart (1 in 10 sampling)
+    if (metrics.loadTestLatencies && Array.isArray(metrics.loadTestLatencies)) {
+      for (const entry of metrics.loadTestLatencies) {
+        if (typeof window.chartsOnProbeLatency === 'function') {
+          window.chartsOnProbeLatency({
+            latencyMs: entry.latencyMs,
+            timestamp: entry.timestamp,
+            success: true,
+            loadTestActive: true,
+            loadTestConcurrent: 0,
+            source: 'loadtest', // Mark as load test sample
+          });
+        }
+      }
+    }
   };
 
   window.onEventUpdate = function(eventOrEvents) {

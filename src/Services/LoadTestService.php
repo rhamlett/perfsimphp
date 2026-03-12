@@ -14,15 +14,30 @@
  *   - Load test frameworks hit the endpoint repeatedly for sustained load
  *   - Under heavy load, requests naturally queue (realistic degradation)
  *
- * PARAMETERS (2 tunable):
+ * PARAMETERS:
  *   - workMs (default: 100) — Duration of CPU work in milliseconds
  *   - memoryKb (default: 5000) — Memory to allocate in KB (5MB)
+ *   - holdMs (default: 500) — How long to hold memory after CPU work (ms)
+ *   - errorAfter (default: 120) — Throw random error if request exceeds this many seconds (0 = disabled)
+ *   - errorPercent (default: 20) — Percentage chance to throw error when threshold exceeded
+ *
+ * CHAOS ERROR INJECTION:
+ *   For realistic load testing with unpredictable failures, use errorAfter and errorPercent:
+ *   - Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)
+ *   - Error types include RuntimeException, LogicException, InvalidArgumentException, etc.
+ *   - Error statistics are tracked and included in the 60-second stats summary
+ *
+ * LATENCY SAMPLING:
+ *   1 in 10 load test requests have their latency sampled for the dashboard's latency monitor.
+ *   This prevents flooding the UI while still showing representative load test performance.
  *
  * STATS LOGGING:
  *   Every 60 seconds, logs a summary to the event log with:
  *   - Request count for the period
  *   - Average response time
  *   - Peak response time
+ *   - Requests per second
+ *   - Error percentage
  *   Triggered by either load test requests OR metrics polling (hybrid).
  *
  * @module src/Services/LoadTestService.php
@@ -45,12 +60,32 @@ class LoadTestService
 
     /** APCu keys for period stats */
     private const STATS_KEY = 'loadtest_period_stats';
+    
+    /** APCu key for sampled latencies (for latency monitor) */
+    private const SAMPLED_LATENCIES_KEY = 'loadtest_sampled_latencies';
+    
+    /** Sample rate for latency monitor (1 in N requests) */
+    private const LATENCY_SAMPLE_RATE = 10;
+    
+    /** Maximum sampled latencies to keep (circular buffer) */
+    private const MAX_SAMPLED_LATENCIES = 100;
 
     /** Default request parameters */
     private const DEFAULTS = [
         'workMs' => 100,      // Duration of CPU work (ms)
         'memoryKb' => 5000,   // Memory to hold during work (KB) - 5MB default
         'holdMs' => 500,      // How long to hold memory after CPU work (ms)
+        'errorAfter' => 120,  // Throw random error if request exceeds this many seconds (default: 120s)
+        'errorPercent' => 20, // Percentage chance to throw error when errorAfter threshold exceeded
+    ];
+
+    /** Types of random errors that can be thrown for chaos testing */
+    private const ERROR_TYPES = [
+        'RuntimeException',
+        'LogicException',
+        'InvalidArgumentException',
+        'OutOfBoundsException',
+        'UnexpectedValueException',
     ];
 
     /**
@@ -75,6 +110,8 @@ class LoadTestService
         $workMs = isset($request['workMs']) ? (int)$request['workMs'] : self::DEFAULTS['workMs'];
         $memoryKb = isset($request['memoryKb']) ? (int)$request['memoryKb'] : self::DEFAULTS['memoryKb'];
         $holdMs = isset($request['holdMs']) ? (int)$request['holdMs'] : self::DEFAULTS['holdMs'];
+        $errorAfter = isset($request['errorAfter']) ? (int)$request['errorAfter'] : self::DEFAULTS['errorAfter'];
+        $errorPercent = isset($request['errorPercent']) ? (int)$request['errorPercent'] : self::DEFAULTS['errorPercent'];
 
         // Legacy parameter support
         if (isset($request['targetDurationMs'])) {
@@ -88,6 +125,8 @@ class LoadTestService
         $workMs = max(10, min($workMs, self::MAX_WORK_MS));
         $memoryKb = max(1, min($memoryKb, 50000)); // Max 50MB
         $holdMs = max(0, min($holdMs, 5000)); // Max 5s hold
+        $errorAfter = max(0, min($errorAfter, 300)); // Max 5 minutes
+        $errorPercent = max(0, min($errorPercent, 100)); // 0-100%
 
         // Step 1: Allocate memory (held during work AND hold period)
         $memory = self::allocateRealMemory($memoryKb);
@@ -103,6 +142,23 @@ class LoadTestService
             // Touch memory during hold to prevent optimization
             $touchPos = mt_rand(0, $memoryAllocated - 1);
             $_ = ord($memory[$touchPos]);
+        }
+
+        // Step 4: Chaos error injection - check AFTER blocking delays
+        // Throws random error if elapsed time exceeds errorAfter seconds with errorPercent probability
+        if ($errorAfter > 0) {
+            $elapsedSeconds = (microtime(true) - $startTime);
+            if ($elapsedSeconds > $errorAfter) {
+                // Roll the dice - throw error with errorPercent probability
+                if (mt_rand(1, 100) <= $errorPercent) {
+                    $errorType = self::ERROR_TYPES[array_rand(self::ERROR_TYPES)];
+                    $errorClass = '\\' . $errorType;
+                    self::recordError(); // Record error in stats before throwing
+                    throw new $errorClass(
+                        sprintf('Chaos error: request exceeded %ds (actual: %.2fs)', $errorAfter, $elapsedSeconds)
+                    );
+                }
+            }
         }
 
         // Touch memory to prevent optimization
@@ -149,6 +205,7 @@ class LoadTestService
     /**
      * Records a request's stats and broadcasts if 60s elapsed.
      * Called after each load test request completes.
+     * Also samples 1 in 10 requests for the latency monitor.
      */
     private static function recordAndMaybeBroadcast(float $responseTimeMs): void
     {
@@ -165,11 +222,92 @@ class LoadTestService
 
                 return $stats;
             }, self::initPeriodStats());
+            
+            // Sample 1 in 10 requests for the latency monitor
+            self::maybeSampleLatency($responseTimeMs);
 
             // Check if we should broadcast
             self::checkAndBroadcast();
         } catch (\Throwable $e) {
             // Silently skip - stats are nice-to-have
+        }
+    }
+    
+    /**
+     * Samples 1 in 10 load test request latencies for the latency monitor.
+     * Stores sampled latencies in a circular buffer (max 100 entries).
+     */
+    private static function maybeSampleLatency(float $responseTimeMs): void
+    {
+        // Sample 1 in 10 requests
+        if (mt_rand(1, self::LATENCY_SAMPLE_RATE) !== 1) {
+            return;
+        }
+        
+        try {
+            SharedStorage::modify(self::SAMPLED_LATENCIES_KEY, function($data) use ($responseTimeMs) {
+                if (!is_array($data)) {
+                    $data = ['latencies' => []];
+                }
+                
+                // Add new latency entry
+                $data['latencies'][] = [
+                    'latencyMs' => round($responseTimeMs, 2),
+                    'timestamp' => (int)(microtime(true) * 1000),
+                    'source' => 'loadtest',
+                ];
+                
+                // Keep only the last MAX_SAMPLED_LATENCIES entries (circular buffer)
+                if (count($data['latencies']) > self::MAX_SAMPLED_LATENCIES) {
+                    $data['latencies'] = array_slice($data['latencies'], -self::MAX_SAMPLED_LATENCIES);
+                }
+                
+                return $data;
+            }, ['latencies' => []]);
+        } catch (\Throwable $e) {
+            // Silently skip - sampling is nice-to-have
+        }
+    }
+    
+    /**
+     * Gets sampled latencies for the latency monitor.
+     * Returns latencies newer than the given timestamp, then clears them.
+     * 
+     * @param int $sinceTimestamp Only return latencies after this timestamp (ms)
+     * @return array Array of latency entries
+     */
+    public static function getSampledLatencies(int $sinceTimestamp = 0): array
+    {
+        try {
+            $data = SharedStorage::get(self::SAMPLED_LATENCIES_KEY);
+            if (!is_array($data) || !isset($data['latencies'])) {
+                return [];
+            }
+            
+            // Filter to only latencies after sinceTimestamp
+            $latencies = array_filter($data['latencies'], function($entry) use ($sinceTimestamp) {
+                return $entry['timestamp'] > $sinceTimestamp;
+            });
+            
+            // Clear consumed latencies
+            if (!empty($latencies)) {
+                SharedStorage::modify(self::SAMPLED_LATENCIES_KEY, function($data) use ($sinceTimestamp) {
+                    if (!is_array($data) || !isset($data['latencies'])) {
+                        return ['latencies' => []];
+                    }
+                    // Keep only latencies before sinceTimestamp (already consumed ones get removed)
+                    // Actually, we want to clear the ones we returned, so keep only NEW ones
+                    $maxTimestamp = max(array_column($data['latencies'], 'timestamp'));
+                    $data['latencies'] = array_filter($data['latencies'], function($entry) use ($maxTimestamp) {
+                        return $entry['timestamp'] > $maxTimestamp;
+                    });
+                    return $data;
+                }, ['latencies' => []]);
+            }
+            
+            return array_values($latencies);
+        } catch (\Throwable $e) {
+            return [];
         }
     }
 
@@ -202,16 +340,19 @@ class LoadTestService
             $avgResponseTime = $stats['responseTimeSum'] / $requestCount;
             $maxResponseTime = $stats['maxResponseTime'];
             $requestsPerSecond = $requestCount / self::STATS_PERIOD_SECONDS;
+            $errorCount = $stats['errorCount'] ?? 0;
+            $errorPercent = $requestCount > 0 ? ($errorCount / $requestCount) * 100 : 0;
 
             // Log to event log
             EventLogService::info(
                 'LOAD_TEST_STATS',
                 sprintf(
-                    '📊 Load Test (60s): %d requests, %.0fms avg, %.0fms max, %.1f RPS',
+                    '📊 Load test period stats: %d requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors',
                     $requestCount,
                     $avgResponseTime,
                     $maxResponseTime,
-                    $requestsPerSecond
+                    $requestsPerSecond,
+                    $errorPercent
                 )
             );
 
@@ -232,7 +373,27 @@ class LoadTestService
             'requestCount' => 0,
             'responseTimeSum' => 0.0,
             'maxResponseTime' => 0.0,
+            'errorCount' => 0,
         ];
+    }
+
+    /**
+     * Records an error in the current period stats.
+     * Called before throwing a chaos error.
+     */
+    private static function recordError(): void
+    {
+        try {
+            SharedStorage::modify(self::STATS_KEY, function($stats) {
+                if (!is_array($stats)) {
+                    $stats = self::initPeriodStats();
+                }
+                $stats['errorCount']++;
+                return $stats;
+            }, self::initPeriodStats());
+        } catch (\Throwable $e) {
+            // Silently skip - stats are nice-to-have
+        }
     }
 
     /**

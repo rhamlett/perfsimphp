@@ -600,7 +600,10 @@ https://your-app.azurewebsites.net/api/loadtest
 https://your-app.azurewebsites.net/api/loadtest?workMs=500&amp;memoryKb=10000
 
 # Memory only (no CPU work)
-https://your-app.azurewebsites.net/api/loadtest?workMs=0&amp;memoryKb=100</code></pre>
+https://your-app.azurewebsites.net/api/loadtest?workMs=0&amp;memoryKb=100
+
+# Chaos error injection (20% error chance if request exceeds 2 seconds)
+https://your-app.azurewebsites.net/api/loadtest?workMs=100&amp;errorAfter=2&amp;errorPercent=20</code></pre>
 
       <h3>Query Parameters</h3>
       <table>
@@ -608,7 +611,17 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=0&amp;memoryKb=100</code>
         <tr><td><code>workMs</code></td><td>100</td><td>CPU work duration per request (ms)</td></tr>
         <tr><td><code>memoryKb</code></td><td>10000</td><td>Memory buffer held for request duration (KB)</td></tr>
         <tr><td><code>holdMs</code></td><td>500</td><td>How long to hold memory after CPU work (ms)</td></tr>
+        <tr><td><code>errorAfter</code></td><td>120</td><td>Throw random error if request exceeds this many seconds (0 = disabled)</td></tr>
+        <tr><td><code>errorPercent</code></td><td>20</td><td>Percentage chance to throw error when errorAfter threshold exceeded</td></tr>
       </table>
+
+      <h3>Chaos Error Injection</h3>
+      <p>For realistic load testing with unpredictable errors, use <code>errorAfter</code> and <code>errorPercent</code>:</p>
+      <ul>
+        <li>Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)</li>
+        <li>Error types include <code>RuntimeException</code>, <code>LogicException</code>, <code>InvalidArgumentException</code>, etc.</li>
+        <li>Error statistics are tracked and included in the 60-second stats summary</li>
+      </ul>
 
       <h3>What It Tests</h3>
       <ul>
@@ -616,6 +629,7 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=0&amp;memoryKb=100</code>
         <li><strong>Memory</strong> &mdash; Buffers allocated and held for request duration</li>
         <li><strong>FPM Workers</strong> &mdash; Worker utilization under concurrent load</li>
         <li><strong>Response Time</strong> &mdash; Increases naturally as requests queue</li>
+        <li><strong>Error Handling</strong> &mdash; Test application resilience with chaos error injection</li>
       </ul>
 
       <div class="info-box">
