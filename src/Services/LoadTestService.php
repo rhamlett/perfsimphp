@@ -18,12 +18,13 @@
  *   - workMs (default: 100) — Duration of CPU work in milliseconds
  *   - memoryKb (default: 5000) — Memory to allocate in KB (5MB)
  *   - holdMs (default: 500) — How long to hold memory after CPU work (ms)
- *   - errorAfter (default: 120) — Throw random error if request exceeds this many seconds (0 = disabled)
+ *   - errorAfter (default: 120) — Throw random error if TOTAL request time (including queue wait) exceeds this many seconds (0 = disabled)
  *   - errorPercent (default: 20) — Percentage chance to throw error when threshold exceeded
  *
  * CHAOS ERROR INJECTION:
  *   For realistic load testing with unpredictable failures, use errorAfter and errorPercent:
- *   - Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)
+ *   - Measures TOTAL request time from when PHP received the request (includes FPM queue wait)
+ *   - Errors trigger when requests are delayed due to worker pool exhaustion
  *   - Error types include RuntimeException, LogicException, InvalidArgumentException, etc.
  *   - Error statistics are tracked and included in the 60-second stats summary
  *
@@ -105,6 +106,8 @@ class LoadTestService
     public static function executeWork(array $request = []): array
     {
         $startTime = microtime(true);
+        // Use HTTP request start time (includes queue wait) for error threshold calculation
+        $requestStartTime = $_SERVER['REQUEST_TIME_FLOAT'] ?? $startTime;
 
         // Parse and validate parameters
         $workMs = isset($request['workMs']) ? (int)$request['workMs'] : self::DEFAULTS['workMs'];
@@ -145,17 +148,17 @@ class LoadTestService
         }
 
         // Step 4: Chaos error injection - check AFTER blocking delays
-        // Throws random error if elapsed time exceeds errorAfter seconds with errorPercent probability
+        // Throws random error if TOTAL request time (including queue wait) exceeds errorAfter seconds
         if ($errorAfter > 0) {
-            $elapsedSeconds = (microtime(true) - $startTime);
-            if ($elapsedSeconds > $errorAfter) {
+            $totalRequestSeconds = (microtime(true) - $requestStartTime);
+            if ($totalRequestSeconds > $errorAfter) {
                 // Roll the dice - throw error with errorPercent probability
                 if (mt_rand(1, 100) <= $errorPercent) {
                     $errorType = self::ERROR_TYPES[array_rand(self::ERROR_TYPES)];
                     $errorClass = '\\' . $errorType;
                     self::recordError(); // Record error in stats before throwing
                     throw new $errorClass(
-                        sprintf('Chaos error: request exceeded %ds (actual: %.2fs)', $errorAfter, $elapsedSeconds)
+                        sprintf('Chaos error: request exceeded %ds (actual: %.2fs)', $errorAfter, $totalRequestSeconds)
                     );
                 }
             }
@@ -348,12 +351,14 @@ class LoadTestService
             // This prevents multiple workers from racing to broadcast.
             $captured = SharedStorage::modify(self::STATS_KEY, function($stats) {
                 if (!is_array($stats) || !isset($stats['periodStart'])) {
-                    return ['_action' => 'skip'];
+                    // No valid stats yet, return unchanged (or default will be stored)
+                    return $stats;
                 }
 
                 $elapsed = time() - $stats['periodStart'];
                 if ($elapsed < self::STATS_PERIOD_SECONDS) {
-                    return ['_action' => 'skip'];
+                    // Not time to broadcast yet - return stats unchanged to preserve them
+                    return $stats;
                 }
 
                 // Capture current stats and reset atomically
@@ -361,7 +366,7 @@ class LoadTestService
                 $stats['_elapsed'] = $elapsed;
                 
                 // Return fresh stats (this is what gets stored)
-                // We'll return the OLD stats as the result for logging
+                // Include '_captured' with old stats for the caller to use for logging
                 return self::initPeriodStats() + ['_captured' => $stats];
             }, self::initPeriodStats());
             
@@ -394,7 +399,7 @@ class LoadTestService
             EventLogService::info(
                 'LOAD_TEST_STATS',
                 sprintf(
-                    'Load test period stats: %d requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors',
+                    'Load test period stats (60s): %d requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors',
                     $requestCount,
                     $avgResponseTime,
                     $maxResponseTime,

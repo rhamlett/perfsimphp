@@ -611,14 +611,19 @@ https://your-app.azurewebsites.net/api/loadtest?workMs=100&amp;errorAfter=2&amp;
         <tr><td><code>workMs</code></td><td>100</td><td>CPU work duration per request (ms)</td></tr>
         <tr><td><code>memoryKb</code></td><td>10000</td><td>Memory buffer held for request duration (KB)</td></tr>
         <tr><td><code>holdMs</code></td><td>500</td><td>How long to hold memory after CPU work (ms)</td></tr>
-        <tr><td><code>errorAfter</code></td><td>120</td><td>Throw random error if request exceeds this many seconds (0 = disabled)</td></tr>
+        <tr><td><code>errorAfter</code></td><td>120</td><td>Throw random error if total request time (including queue wait) exceeds this many seconds (0 = disabled)</td></tr>
         <tr><td><code>errorPercent</code></td><td>20</td><td>Percentage chance to throw error when errorAfter threshold exceeded</td></tr>
       </table>
+
+      <div class="info-box">
+        <p><strong>Note:</strong> Actual response times will vary based on your Azure App Service tier, current load, and other factors. Use Azure Load Testing to establish baseline performance for your specific environment. These example scenarios, and the defaults, are for a Premium0V3 worker. Any other SKU or worker size will need individual tuning.</p>
+      </div>
 
       <h3>Chaos Error Injection</h3>
       <p>For realistic load testing with unpredictable errors, use <code>errorAfter</code> and <code>errorPercent</code>:</p>
       <ul>
-        <li>Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)</li>
+        <li>Measures TOTAL request time from when PHP received the request (includes FPM queue wait)</li>
+        <li>Errors trigger when requests are delayed due to worker pool exhaustion</li>
         <li>Error types include <code>RuntimeException</code>, <code>LogicException</code>, <code>InvalidArgumentException</code>, etc.</li>
         <li>Error statistics are tracked and included in the 60-second stats summary</li>
       </ul>

@@ -223,15 +223,16 @@ GET /api/loadtest/stats
 | `workMs` | 100 | 5000 | Duration of CPU work in milliseconds (uses hash_pbkdf2) |
 | `memoryKb` | 5000 | 50000 | Memory to allocate per request in KB |
 | `holdMs` | 500 | 5000 | Time to hold memory after CPU work (ms). Ensures metrics polling captures memory usage. |
-| `errorAfter` | 120 | 300 | Throw random error if request exceeds this many seconds (0 = disabled) |
+| `errorAfter` | 120 | 300 | Throw random error if total request time (including queue wait) exceeds this many seconds (0 = disabled) |
 | `errorPercent` | 20 | 100 | Percentage chance to throw error when errorAfter threshold exceeded |
 
 **Chaos Error Injection:**
 For realistic load testing with unpredictable errors, use `errorAfter` and `errorPercent`:
 - By default, requests over 120s have a 20% chance to throw a random error
-- `errorAfter=2&errorPercent=50` — 50% chance of random error if request takes over 2 seconds
+- `errorAfter=2&errorPercent=50` — 50% chance of random error if total request time exceeds 2 seconds
 - `errorAfter=0` — Disable chaos errors entirely
-- Errors are thrown AFTER the elapsed time exceeds the threshold (post-blocking delays)
+- Measures TOTAL request time from when PHP received the request (includes FPM queue wait)
+- Errors trigger when requests are delayed due to worker pool exhaustion
 - Error types include `RuntimeException`, `LogicException`, `InvalidArgumentException`, etc.
 
 **Design Philosophy:**
@@ -243,7 +244,7 @@ For realistic load testing with unpredictable errors, use `errorAfter` and `erro
 
 **Stats Logging:** Every 60 seconds, a summary is logged to the event log:
 ```
-📊 Load test period stats: 1523 requests, 112.5 avg ms, 426 max ms, 25.38 RPS, 0.0% errors
+📊 Load test period stats (60s): 1523 requests, 112.5 avg ms, 426 max ms, 25.38 RPS, 0.0% errors
 ```
 
 **Legacy Parameters:** `targetDurationMs` and `memorySizeKb` are still supported as aliases for backwards compatibility.
