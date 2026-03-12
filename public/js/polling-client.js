@@ -83,8 +83,18 @@ const INTERNAL_PROBE_INTERVAL = 100;
 
 // Timeouts for fetch requests (prevents UI freeze during load testing)
 const METRICS_TIMEOUT_MS = 5000;
-const PROBE_TIMEOUT_MS = 15000;
+// CRITICAL: Aggressive probe timeout to prevent browser connection pool exhaustion
+// When main pool is saturated, probes can wait 10+ seconds in queue, consuming
+// browser connection slots and blocking metrics requests. Fail fast instead.
+const PROBE_TIMEOUT_MS = 2000;
 const EVENTS_TIMEOUT_MS = 5000;
+
+// Track if load test is currently active (to skip direct probing)
+let loadTestActive = false;
+// Cooldown period after load testing stops before resuming direct probes (ms)
+// Allows the main FPM pool queue to drain before we start probing it again
+const LOAD_TEST_COOLDOWN_MS = 3000;
+let loadTestEndTime = 0;
 
 // Polling timer IDs
 let metricsPollTimer = null;
@@ -258,6 +268,7 @@ function startMetricsPolling() {
 
 /**
  * Fetches metrics once and dispatches to handlers.
+ * Also updates loadTestActive flag based on recent sampled latencies.
  */
 function pollMetricsOnce() {
   fetchWithTimeout('/api/metrics', { cache: 'no-store' }, METRICS_TIMEOUT_MS)
@@ -267,6 +278,38 @@ function pollMetricsOnce() {
     })
     .then(metrics => {
       onPollSuccess();
+      
+      // Detect load test activity from sampled latencies
+      // If we have recent load test latencies, load testing is active
+      const hasLatencies = metrics.loadTestLatencies && metrics.loadTestLatencies.length > 0;
+      const wasActive = loadTestActive;
+      
+      if (hasLatencies) {
+        // Load test is active
+        loadTestActive = true;
+        loadTestEndTime = 0;
+      } else if (wasActive && loadTestEndTime === 0) {
+        // Load test just stopped - start cooldown
+        loadTestEndTime = Date.now();
+        loadTestActive = true; // Stay in "active" mode during cooldown
+      } else if (loadTestEndTime > 0) {
+        // Check if cooldown has elapsed
+        const cooldownElapsed = Date.now() - loadTestEndTime;
+        if (cooldownElapsed >= LOAD_TEST_COOLDOWN_MS) {
+          loadTestActive = false;
+          loadTestEndTime = 0;
+        }
+      }
+      
+      // Log state change for debugging
+      if (loadTestActive !== wasActive) {
+        if (loadTestActive) {
+          console.log('[polling-client] Load test ACTIVE - skipping direct probes, using sampled latencies');
+        } else {
+          console.log('[polling-client] Load test ENDED - resuming direct probes after cooldown');
+        }
+      }
+      
       if (typeof onMetricsUpdate === 'function') {
         onMetricsUpdate(metrics);
       }
@@ -431,6 +474,10 @@ let probeInFlight = false;
  * Starts probe polling every 100ms via direct frontend requests.
  * Measures full round-trip latency including Azure Front Door and stamp frontend.
  * Uses a flag to prevent pile-up if requests take longer than 100ms.
+ * 
+ * IMPORTANT: During load testing, direct probing is SKIPPED to prevent browser
+ * connection pool exhaustion. Load test latencies are sampled server-side and
+ * delivered via the /api/metrics response instead.
  */
 function startProbePolling() {
   if (probePollTimer) clearInterval(probePollTimer);
@@ -444,12 +491,28 @@ function startProbePolling() {
  * Performs a single probe through the stamp frontend.
  * Uses lightweight health probe for accurate latency measurement.
  * Skips if a previous probe is still in flight to prevent pile-up.
+ * 
+ * LOAD TEST BEHAVIOR:
+ * When load testing is active, direct probing is SKIPPED because:
+ * 1. The main FPM pool is saturated - probes would wait 10+ seconds
+ * 2. Waiting requests consume browser connection slots (limit ~6)
+ * 3. This blocks /api/metrics requests, freezing the dashboard
+ * 
+ * Instead, load test latencies are sampled server-side (1 in 10 requests)
+ * and delivered via /api/metrics response. This keeps the dashboard responsive.
  */
 function probeOnce() {
   // Skip if previous request hasn't completed
   if (probeInFlight) {
     return;
   }
+  
+  // Skip direct probing during load tests - latencies come via /api/metrics
+  // This prevents browser connection pool exhaustion
+  if (loadTestActive) {
+    return;
+  }
+  
   probeInFlight = true;
   
   const probeStart = Date.now();
@@ -476,17 +539,21 @@ function probeOnce() {
           success: true,
           loadTestActive: false,
           loadTestConcurrent: 0,
+          source: 'direct-probe',
         });
       }
     })
     .catch(error => {
-      console.error('[polling-client] Probe failed:', error.message || error);
+      // Don't log every failure during load testing (expected behavior)
+      if (!loadTestActive) {
+        console.error('[polling-client] Probe failed:', error.message || error);
+      }
       if (typeof onProbeLatency === 'function') {
         onProbeLatency({
           latencyMs: 0,
           timestamp: Date.now(),
           success: false,
-          loadTestActive: false,
+          loadTestActive: loadTestActive,
           loadTestConcurrent: 0,
         });
       }

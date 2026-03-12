@@ -100,56 +100,31 @@ class MetricsController
 
     /**
      * GET /api/metrics/internal-probe
-     * Performs a single internal probe via localhost:8080 (bypasses stamp frontend).
+     * NON-BLOCKING latency data endpoint.
      * 
-     * This endpoint does one curl request to localhost:8080/api/metrics/probe
-     * and returns the latency measurement. Called every 100ms by the client.
+     * Returns sampled latencies from load test requests stored in APCu.
+     * This endpoint NEVER makes blocking calls to the main FPM pool.
+     * 
+     * Architecture:
+     *   - Load test requests sample their own latency (1 in 10) via LoadTestService
+     *   - Latencies are stored in APCu shared memory
+     *   - This endpoint reads from APCu and returns the data
+     *   - Client displays the latencies on the chart
+     * 
+     * This design ensures the metrics pool (port 9001) remains responsive even
+     * when the main pool (port 9000) is saturated by load test traffic.
      */
     public static function internalProbe(): array
     {
-        try {
-            $port = '8080';
-            $probeUrl = "http://127.0.0.1:{$port}/api/metrics/probe?t=" . microtime(true);
-            
-            if (!function_exists('curl_init')) {
-                return ['error' => 'curl extension not available', 'latencyMs' => 0, 'success' => false];
-            }
-            
-            $stats = LoadTestService::getCurrentStats();
-            $probeStart = microtime(true);
-            
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $probeUrl,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 0,
-                CURLOPT_CONNECTTIMEOUT => 0,
-                CURLOPT_HTTPHEADER => ['X-Internal-Probe: true'],
-            ]);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $error = curl_error($ch);
-            unset($ch);
-            
-            $probeEnd = microtime(true);
-            $latencyMs = ($probeEnd - $probeStart) * 1000;
-            
-            $result = [
-                'latencyMs' => round($latencyMs, 2),
-                'timestamp' => (int) ($probeEnd * 1000),
-                'success' => $httpCode === 200 && empty($error),
-                'loadTestActive' => $stats['currentConcurrentRequests'] > 0,
-                'loadTestConcurrent' => $stats['currentConcurrentRequests'],
-            ];
-            
-            if ($httpCode !== 200 || !empty($error)) {
-                $result['_debug'] = ['httpCode' => $httpCode, 'error' => $error];
-            }
-            
-            return $result;
-        } catch (\Throwable $e) {
-            return ['error' => $e->getMessage(), 'latencyMs' => 0, 'success' => false];
-        }
+        // Get sampled latencies from APCu (non-blocking read)
+        $latencies = LoadTestService::getSampledLatencies(0);
+        
+        return [
+            'success' => true,
+            'timestamp' => (int) (microtime(true) * 1000),
+            'latencies' => $latencies,
+            'count' => count($latencies),
+            'source' => 'apcu-sampled',
+        ];
     }
 }

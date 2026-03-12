@@ -153,7 +153,7 @@
           <h3>⏱️ Request Latency Monitor <span id="probe-visualization" class="probe-visualization-inline" title="Probe history: Green=good (<200ms), Yellow=degraded (200ms-1s), Orange=slow (>1s), Red=failed/timeout"></span></h3>
           <!-- PORTING NOTE: Update latency description for target runtime's probe mechanism -->
           <p class="latency-description">Measures actual response time via browser XHR probes to a lightweight endpoint. Times include PHP-FPM worker acquisition, processing, and network latency.</p>
-          <p class="latency-description latency-description-note">The UI and metrics for this application may freeze when under stress. Responsiveness will return once the stress has passed. This is unavoidable with the FPM worker architecture of PHP.</p>
+          <p class="latency-description latency-description-note">During load testing, latencies are sampled directly from load test requests (1 in 10). This keeps the dashboard responsive while showing real load test performance.</p>
           
           <div class="latency-stats">
             <div class="latency-stat">
