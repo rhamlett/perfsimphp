@@ -90,12 +90,16 @@ const METRICS_TIMEOUT_MS = 5000;
 const PROBE_TIMEOUT_MS = 2000;
 const EVENTS_TIMEOUT_MS = 5000;
 
-// Track if load test is currently active (to skip direct probing)
+// Track if load test is currently active (reduces probe rate)
 let loadTestActive = false;
-// Cooldown period after load testing stops before resuming direct probes (ms)
-// Allows the main FPM pool queue to drain before we start probing it again
+// Cooldown period after load testing stops before resuming normal probe rate (ms)
+// Allows the main FPM pool queue to drain before we increase probe rate
 const LOAD_TEST_COOLDOWN_MS = 3000;
 let loadTestEndTime = 0;
+// During load tests, reduce probe rate to prevent connection pool exhaustion
+// but still probe occasionally for connectivity monitoring and stats logging
+const LOAD_TEST_PROBE_INTERVAL = 5000; // 1 probe every 5 seconds during load tests
+let lastLoadTestProbeTime = 0;
 
 // Track probe failures - stop probing quickly when main pool is saturated
 let consecutiveProbeFailures = 0;
@@ -287,11 +291,21 @@ function startMetricsPolling() {
   metricsPollTimer = setInterval(pollMetricsOnce, METRICS_POLL_INTERVAL);
 }
 
+// Guard to prevent metrics pile-up when server is slow
+let metricsInFlight = false;
+
 /**
  * Fetches metrics once and dispatches to handlers.
  * Also updates loadTestActive flag based on recent sampled latencies.
+ * Uses in-flight guard to prevent request pile-up when server is slow.
  */
 function pollMetricsOnce() {
+  // Skip if previous request hasn't completed (prevents pile-up)
+  if (metricsInFlight) {
+    return;
+  }
+  metricsInFlight = true;
+  
   fetchWithTimeout('/api/metrics', { cache: 'no-store' }, METRICS_TIMEOUT_MS)
     .then(response => {
       if (!response.ok) throw new Error('Metrics fetch failed');
@@ -325,9 +339,9 @@ function pollMetricsOnce() {
       // Log state change for debugging
       if (loadTestActive !== wasActive) {
         if (loadTestActive) {
-          console.log('[polling-client] Load test ACTIVE - skipping direct probes, using sampled latencies');
+          console.log('[polling-client] Load test ACTIVE - reducing probe rate to ' + (LOAD_TEST_PROBE_INTERVAL/1000) + 's, using sampled latencies');
         } else {
-          console.log('[polling-client] Load test ENDED - resuming direct probes after cooldown');
+          console.log('[polling-client] Load test ENDED - resuming normal probe rate after cooldown');
         }
       }
       
@@ -338,6 +352,9 @@ function pollMetricsOnce() {
     .catch(error => {
       // Don't log every failure to avoid console spam
       onPollFailure();
+    })
+    .finally(() => {
+      metricsInFlight = false;
     });
 }
 
@@ -501,9 +518,9 @@ let chartUpdateTimer = null;
  * Also starts a separate chart update timer at 100ms for smooth visualization.
  * Uses interpolation to maintain chart smoothness when probe rate is slower.
  * 
- * IMPORTANT: During load testing, direct probing is SKIPPED to prevent browser
- * connection pool exhaustion. Load test latencies are sampled server-side and
- * delivered via the /api/metrics response instead.
+ * During load testing, probe rate is dynamically reduced to 5 seconds to prevent
+ * browser connection pool exhaustion while maintaining UI responsiveness through
+ * chart interpolation and sampled load test latencies from /api/metrics.
  */
 function startProbePolling() {
   if (probePollTimer) clearInterval(probePollTimer);
@@ -525,33 +542,36 @@ function startProbePolling() {
 /**
  * Dispatches chart updates at 100ms intervals.
  * Uses interpolation when the probe rate is slower than chart update rate.
- * Simply repeats the last known value to maintain chart progression.
+ * Repeats the last known value to maintain chart progression and UI movement.
+ * 
+ * During load tests, this keeps the chart moving smoothly between the slow
+ * probe intervals (5s) and sampled latencies from metrics.
  */
 function dispatchChartUpdate() {
   // Skip if no probe data available yet
   if (!lastProbeData) return;
   
-  // Skip chart updates during load test (metrics provide the data)
-  if (loadTestActive) return;
-  
   const now = Date.now();
   const timeSinceLastProbe = now - lastProbeTimestamp;
   
+  // Determine the effective probe interval (slower during load tests)
+  const effectiveProbeInterval = loadTestActive ? LOAD_TEST_PROBE_INTERVAL : PROBE_POLL_INTERVAL;
+  
   // If probe rate is faster than or equal to chart update rate, 
   // probeOnce already dispatches via onProbeLatency, no interpolation needed
-  if (PROBE_POLL_INTERVAL <= LATENCY_CHART_UPDATE_INTERVAL) return;
+  if (effectiveProbeInterval <= LATENCY_CHART_UPDATE_INTERVAL) return;
   
   // Interpolation: dispatch the last known value at chart update intervals
   // This fills in the gaps between slower probe measurements
+  // During load tests, this keeps the chart moving while waiting for slow probes
   // Only dispatch if we haven't received a fresh probe recently (within last 50ms)
-  // to avoid double-dispatching when probe and chart timer align
-  if (timeSinceLastProbe > 50 && timeSinceLastProbe < PROBE_POLL_INTERVAL + 100) {
+  if (timeSinceLastProbe > 50 && timeSinceLastProbe < effectiveProbeInterval + 500) {
     if (typeof onProbeLatency === 'function') {
       onProbeLatency({
         latencyMs: lastProbeData.latencyMs,
         timestamp: now,
         success: true,
-        loadTestActive: false,
+        loadTestActive: loadTestActive,
         loadTestConcurrent: 0,
         source: 'interpolated',
       });
@@ -565,13 +585,14 @@ function dispatchChartUpdate() {
  * Skips if a previous probe is still in flight to prevent pile-up.
  * 
  * LOAD TEST BEHAVIOR:
- * When load testing is active, direct probing is SKIPPED because:
- * 1. The main FPM pool is saturated - probes would wait 10+ seconds
- * 2. Waiting requests consume browser connection slots (limit ~6)
- * 3. This blocks /api/metrics requests, freezing the dashboard
+ * When load testing is active, probe rate is reduced from normal (~200ms) to
+ * slow (5 seconds) to prevent browser connection pool exhaustion while still:
+ * 1. Maintaining connectivity monitoring
+ * 2. Providing fresh data for chart interpolation
+ * 3. Keeping load test stats logging working
  * 
- * Instead, load test latencies are sampled server-side (1 in 10 requests)
- * and delivered via /api/metrics response. This keeps the dashboard responsive.
+ * Additionally, load test latencies are sampled server-side (1 in 10 requests)
+ * and delivered via /api/metrics response for higher-resolution data.
  * 
  * FAILURE HANDLING:
  * After 3 consecutive probe failures, probing pauses for 10 seconds.
@@ -583,10 +604,17 @@ function probeOnce() {
     return;
   }
   
-  // Skip direct probing during load tests - latencies come via /api/metrics
-  // This prevents browser connection pool exhaustion
+  // During load tests, probe at a much slower rate (5 seconds) to:
+  // 1. Reduce connection pool pressure (main pool is saturated)
+  // 2. Still maintain some connectivity monitoring
+  // 3. Keep load test stats logging working
+  // 4. Allow chart interpolation to have fresh data occasionally
   if (loadTestActive) {
-    return;
+    const now = Date.now();
+    if (now - lastLoadTestProbeTime < LOAD_TEST_PROBE_INTERVAL) {
+      return; // Not time for a load test probe yet
+    }
+    lastLoadTestProbeTime = now;
   }
   
   // Check if probing is paused due to failures
@@ -630,9 +658,9 @@ function probeOnce() {
           latencyMs: latency,
           timestamp: Date.now(),
           success: true,
-          loadTestActive: false,
+          loadTestActive: loadTestActive, // Pass current load test state for stats logging
           loadTestConcurrent: 0,
-          source: 'direct-probe',
+          source: loadTestActive ? 'slow-probe' : 'direct-probe',
         });
       }
     })
