@@ -332,4 +332,42 @@ class SharedStorage
 
         return $newValue;
     }
+
+    // =========================================================================
+    // CROSS-POOL STORAGE (Always File-Based)
+    // =========================================================================
+    // 
+    // These methods ALWAYS use file-based storage even when APCu is available.
+    // This is necessary for sharing data between separate PHP-FPM pools (e.g.,
+    // main pool on port 9000 and metrics pool on port 9001) because each pool
+    // has its own isolated APCu instance.
+    //
+    // Use cases:
+    // - Sampled load test latencies (written by main pool, read by metrics pool)
+    // - Any data that needs to cross pool boundaries
+    // =========================================================================
+
+    /**
+     * Get a value from cross-pool storage (always file-based).
+     */
+    public static function crossPoolGet(string $key, mixed $default = null): mixed
+    {
+        return self::fileGet($key, $default);
+    }
+
+    /**
+     * Store a value in cross-pool storage (always file-based).
+     */
+    public static function crossPoolSet(string $key, mixed $value, int $ttl = 0): void
+    {
+        self::fileSet($key, $value, $ttl);
+    }
+
+    /**
+     * Atomically modify a value in cross-pool storage (always file-based).
+     */
+    public static function crossPoolModify(string $key, callable $modifier, mixed $default = null): mixed
+    {
+        return self::fileModify($key, $modifier, $default);
+    }
 }

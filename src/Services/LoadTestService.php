@@ -236,6 +236,10 @@ class LoadTestService
     /**
      * Samples 1 in 10 load test request latencies for the latency monitor.
      * Stores sampled latencies in a circular buffer (max 100 entries).
+     * 
+     * IMPORTANT: Uses cross-pool file storage (not APCu) because the main FPM pool
+     * (port 9000) writes these latencies, but the metrics FPM pool (port 9001)
+     * reads them. Each pool has its own APCu, so we must use file-based storage.
      */
     private static function maybeSampleLatency(float $responseTimeMs): void
     {
@@ -245,7 +249,8 @@ class LoadTestService
         }
         
         try {
-            SharedStorage::modify(self::SAMPLED_LATENCIES_KEY, function($data) use ($responseTimeMs) {
+            // Use cross-pool storage (file-based) so metrics pool can read these
+            SharedStorage::crossPoolModify(self::SAMPLED_LATENCIES_KEY, function($data) use ($responseTimeMs) {
                 if (!is_array($data)) {
                     $data = ['latencies' => []];
                 }
@@ -273,13 +278,18 @@ class LoadTestService
      * Gets sampled latencies for the latency monitor.
      * Returns latencies newer than the given timestamp, then clears them.
      * 
+     * IMPORTANT: Uses cross-pool file storage (not APCu) because this is called
+     * by the metrics FPM pool (port 9001), but latencies are written by the main
+     * FPM pool (port 9000). Each pool has its own APCu instance.
+     * 
      * @param int $sinceTimestamp Only return latencies after this timestamp (ms)
      * @return array Array of latency entries
      */
     public static function getSampledLatencies(int $sinceTimestamp = 0): array
     {
         try {
-            $data = SharedStorage::get(self::SAMPLED_LATENCIES_KEY);
+            // Use cross-pool storage (file-based) to read what main pool wrote
+            $data = SharedStorage::crossPoolGet(self::SAMPLED_LATENCIES_KEY);
             if (!is_array($data) || !isset($data['latencies'])) {
                 return [];
             }
@@ -291,16 +301,17 @@ class LoadTestService
             
             // Clear consumed latencies
             if (!empty($latencies)) {
-                SharedStorage::modify(self::SAMPLED_LATENCIES_KEY, function($data) use ($sinceTimestamp) {
+                SharedStorage::crossPoolModify(self::SAMPLED_LATENCIES_KEY, function($data) use ($sinceTimestamp) {
                     if (!is_array($data) || !isset($data['latencies'])) {
                         return ['latencies' => []];
                     }
-                    // Keep only latencies before sinceTimestamp (already consumed ones get removed)
-                    // Actually, we want to clear the ones we returned, so keep only NEW ones
+                    // Keep only latencies that we haven't returned yet
+                    // Find the max timestamp we're returning and clear those
                     $maxTimestamp = max(array_column($data['latencies'], 'timestamp'));
                     $data['latencies'] = array_filter($data['latencies'], function($entry) use ($maxTimestamp) {
                         return $entry['timestamp'] > $maxTimestamp;
                     });
+                    $data['latencies'] = array_values($data['latencies']);
                     return $data;
                 }, ['latencies' => []]);
             }

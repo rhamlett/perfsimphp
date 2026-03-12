@@ -96,6 +96,12 @@ let loadTestActive = false;
 const LOAD_TEST_COOLDOWN_MS = 3000;
 let loadTestEndTime = 0;
 
+// Track probe failures - stop probing quickly when main pool is saturated
+let consecutiveProbeFailures = 0;
+const MAX_PROBE_FAILURES_BEFORE_PAUSE = 3; // Stop probing after 3 consecutive failures
+let probePausedUntil = 0; // Timestamp when probing can resume
+const PROBE_PAUSE_DURATION_MS = 10000; // Pause probing for 10 seconds after failures
+
 // Polling timer IDs
 let metricsPollTimer = null;
 let eventsPollTimer = null;
@@ -211,6 +217,9 @@ function onConnectionFailed() {
 /**
  * Handles a polling failure. Updates connection status after sustained failures.
  * Uses time-based detection (10 seconds) instead of counting failures.
+ * 
+ * NOTE: This only affects metrics/events polling status display.
+ * Probe failures are tracked separately and don't trigger reconnection.
  */
 function onPollFailure() {
   const timeSinceSuccess = Date.now() - lastSuccessfulPollTime;
@@ -226,8 +235,11 @@ function onPollFailure() {
       addEventToLog({ level: 'warning', message: 'Server not responding...' });
     }
 
-    // Stop polling and attempt reconnection
-    stopAllPolling();
+    // Stop metrics and events polling, but NOT probe polling (it manages itself)
+    // Probe polling will self-pause on failures via consecutiveProbeFailures tracking
+    if (metricsPollTimer) { clearInterval(metricsPollTimer); metricsPollTimer = null; }
+    if (eventsPollTimer) { clearInterval(eventsPollTimer); eventsPollTimer = null; }
+    
     reconnectAttempts = 0;
     setTimeout(initSocket, 1000);
   }
@@ -500,6 +512,10 @@ function startProbePolling() {
  * 
  * Instead, load test latencies are sampled server-side (1 in 10 requests)
  * and delivered via /api/metrics response. This keeps the dashboard responsive.
+ * 
+ * FAILURE HANDLING:
+ * After 3 consecutive probe failures, probing pauses for 10 seconds.
+ * This prevents connection pool exhaustion when the main pool is overloaded.
  */
 function probeOnce() {
   // Skip if previous request hasn't completed
@@ -511,6 +527,17 @@ function probeOnce() {
   // This prevents browser connection pool exhaustion
   if (loadTestActive) {
     return;
+  }
+  
+  // Check if probing is paused due to failures
+  if (probePausedUntil > 0) {
+    if (Date.now() < probePausedUntil) {
+      return; // Still paused
+    }
+    // Pause expired - reset and try again
+    probePausedUntil = 0;
+    consecutiveProbeFailures = 0;
+    console.log('[polling-client] Probe pause expired, resuming direct probes');
   }
   
   probeInFlight = true;
@@ -530,6 +557,8 @@ function probeOnce() {
       return response.json().then(data => ({ data, latency }));
     })
     .then(({ data, latency }) => {
+      // Reset failure counter on success
+      consecutiveProbeFailures = 0;
       onPollSuccess();
 
       if (typeof onProbeLatency === 'function') {
@@ -544,10 +573,15 @@ function probeOnce() {
       }
     })
     .catch(error => {
-      // Don't log every failure during load testing (expected behavior)
-      if (!loadTestActive) {
-        console.error('[polling-client] Probe failed:', error.message || error);
+      // Track consecutive failures
+      consecutiveProbeFailures++;
+      
+      // After too many failures, pause probing to free up connections
+      if (consecutiveProbeFailures >= MAX_PROBE_FAILURES_BEFORE_PAUSE) {
+        probePausedUntil = Date.now() + PROBE_PAUSE_DURATION_MS;
+        console.log('[polling-client] Probe failures detected (' + consecutiveProbeFailures + '), pausing direct probes for ' + (PROBE_PAUSE_DURATION_MS/1000) + 's');
       }
+      
       if (typeof onProbeLatency === 'function') {
         onProbeLatency({
           latencyMs: 0,
