@@ -81,6 +81,10 @@ class EventLogService
 
     /**
      * Log a new event.
+     * 
+     * IMPORTANT: Uses cross-pool storage so events are visible across all FPM pools.
+     * The main pool (port 9000) writes events during load tests, and the metrics pool
+     * (port 9001) reads them for dashboard display.
      */
     public static function log(
         string $event,
@@ -91,7 +95,8 @@ class EventLogService
         ?array $details = null,
     ): array {
         // Get next sequence number (monotonically increasing, survives ring buffer eviction)
-        $seq = SharedStorage::modify(self::SEQUENCE_KEY, function (?int $s) {
+        // Uses cross-pool storage to ensure consistency across FPM pools
+        $seq = SharedStorage::crossPoolModify(self::SEQUENCE_KEY, function (?int $s) {
             return ($s ?? 0) + 1;
         }, 0);
 
@@ -108,10 +113,12 @@ class EventLogService
             'details' => $details,
         ];
 
-        // Store in ring buffer
+        // Store in ring buffer using cross-pool storage
+        // This ensures events are visible to both the main FPM pool (load tests)
+        // and the metrics FPM pool (dashboard polling)
         $maxEntries = Config::eventLogMaxEntries();
 
-        SharedStorage::modify(self::STORAGE_KEY, function (?array $entries) use ($entry, $maxEntries) {
+        SharedStorage::crossPoolModify(self::STORAGE_KEY, function (?array $entries) use ($entry, $maxEntries) {
             $entries = $entries ?? [];
             $entries[] = $entry;
 
@@ -176,10 +183,11 @@ class EventLogService
 
     /**
      * Get all log entries.
+     * Uses cross-pool storage to read events from any FPM pool.
      */
     public static function getEntries(): array
     {
-        return SharedStorage::get(self::STORAGE_KEY, []);
+        return SharedStorage::crossPoolGet(self::STORAGE_KEY, []);
     }
 
     /**

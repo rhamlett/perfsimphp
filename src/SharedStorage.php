@@ -79,6 +79,9 @@ class SharedStorage
     // Redis connection for cross-pool storage (null = not attempted, false = failed, Redis = connected)
     private static $redis = null;
     private static bool $redisChecked = false;
+    
+    // Track if we've already warned about file fallback (avoid log spam)
+    private static bool $fileFallbackWarned = false;
 
     /**
      * Check if APCu is available and enabled.
@@ -526,12 +529,60 @@ class SharedStorage
     // =========================================================================
 
     /**
+     * Check if running in Azure App Service.
+     * Used to enforce Redis requirement in production.
+     */
+    private static function isRunningInAzure(): bool
+    {
+        // WEBSITE_SITE_NAME is set by Azure App Service
+        return !empty($_ENV['WEBSITE_SITE_NAME']) || !empty(getenv('WEBSITE_SITE_NAME'));
+    }
+    
+    /**
+     * Get Redis for cross-pool operations, with environment-aware error handling.
+     * - In Azure: throws RuntimeException if Redis unavailable (config error)
+     * - Locally: logs warning once and returns null for file fallback
+     * 
+     * @return \Redis|null Redis instance or null (local dev fallback)
+     * @throws \RuntimeException If in Azure and Redis is not available
+     */
+    private static function requireRedisForCrossPool(): ?\Redis
+    {
+        $redis = self::getRedis();
+        if ($redis) {
+            return $redis;
+        }
+        
+        // Redis not available - handle based on environment
+        if (self::isRunningInAzure()) {
+            throw new \RuntimeException(
+                'Redis is required for cross-pool storage in Azure but is not available. ' .
+                'Check that REDIS_URL is configured correctly in App Service settings.'
+            );
+        }
+        
+        // Local development - warn once and allow file fallback
+        if (!self::$fileFallbackWarned) {
+            error_log(
+                '[SharedStorage] WARNING: Redis not available for cross-pool storage. ' .
+                'Falling back to file-based storage. This is acceptable for local development ' .
+                'but should not happen in Azure.'
+            );
+            self::$fileFallbackWarned = true;
+        }
+        
+        return null;
+    }
+
+    /**
      * Get a value from cross-pool storage.
-     * Uses Redis if available, falls back to file-based.
+     * Uses Redis (required in Azure, optional locally with file fallback).
+     * 
+     * @throws \RuntimeException If in Azure and Redis is not available
      */
     public static function crossPoolGet(string $key, mixed $default = null): mixed
     {
-        $redis = self::getRedis();
+        $redis = self::requireRedisForCrossPool();
         if ($redis) {
             try {
                 $value = $redis->get('crosspool:' . $key);
@@ -541,19 +592,23 @@ class SharedStorage
                 $decoded = json_decode($value, true);
                 return $decoded ?? $default;
             } catch (\Throwable $e) {
-                // Fall through to file-based
+                // Redis operation failed - this is unexpected, rethrow
+                throw new \RuntimeException('Redis cross-pool get failed: ' . $e->getMessage(), 0, $e);
             }
         }
+        // Local dev file fallback
         return self::fileGet($key, $default);
     }
 
     /**
      * Store a value in cross-pool storage.
-     * Uses Redis if available, falls back to file-based.
+     * Uses Redis (required in Azure, optional locally with file fallback).
+     * 
+     * @throws \RuntimeException If in Azure and Redis is not available
      */
     public static function crossPoolSet(string $key, mixed $value, int $ttl = 0): void
     {
-        $redis = self::getRedis();
+        $redis = self::requireRedisForCrossPool();
         if ($redis) {
             try {
                 $encoded = json_encode($value);
@@ -564,22 +619,26 @@ class SharedStorage
                 }
                 return;
             } catch (\Throwable $e) {
-                // Fall through to file-based
+                // Redis operation failed - this is unexpected, rethrow
+                throw new \RuntimeException('Redis cross-pool set failed: ' . $e->getMessage(), 0, $e);
             }
         }
+        // Local dev file fallback
         self::fileSet($key, $value, $ttl);
     }
 
     /**
      * Atomically modify a value in cross-pool storage.
-     * Uses Redis if available, falls back to file-based.
+     * Uses Redis (required in Azure, optional locally with file fallback).
      * 
      * Note: Redis doesn't have native read-modify-write, but WATCH/MULTI/EXEC
      * provides optimistic locking which is much faster than file locks under load.
+     * 
+     * @throws \RuntimeException If in Azure and Redis is not available
      */
     public static function crossPoolModify(string $key, callable $modifier, mixed $default = null): mixed
     {
-        $redis = self::getRedis();
+        $redis = self::requireRedisForCrossPool();
         if ($redis) {
             try {
                 $redisKey = 'crosspool:' . $key;
@@ -602,29 +661,36 @@ class SharedStorage
                     }
                     // Transaction failed due to concurrent modification, retry
                 }
-                // Fall through to file-based after max retries
+                // Max retries exceeded - this indicates high contention
+                throw new \RuntimeException('Redis cross-pool modify failed after max retries (high contention)');
+            } catch (\RuntimeException $e) {
+                throw $e; // Re-throw our own exceptions
             } catch (\Throwable $e) {
-                // Fall through to file-based
+                throw new \RuntimeException('Redis cross-pool modify failed: ' . $e->getMessage(), 0, $e);
             }
         }
+        // Local dev file fallback
         return self::fileModify($key, $modifier, $default);
     }
 
     /**
      * Delete a value from cross-pool storage.
-     * Uses Redis if available, falls back to file-based.
+     * Uses Redis (required in Azure, optional locally with file fallback).
+     * 
+     * @throws \RuntimeException If in Azure and Redis is not available
      */
     public static function crossPoolDelete(string $key): void
     {
-        $redis = self::getRedis();
+        $redis = self::requireRedisForCrossPool();
         if ($redis) {
             try {
                 $redis->del('crosspool:' . $key);
                 return;
             } catch (\Throwable $e) {
-                // Fall through to file-based
+                throw new \RuntimeException('Redis cross-pool delete failed: ' . $e->getMessage(), 0, $e);
             }
         }
+        // Local dev file fallback
         self::fileDelete($key);
     }
 }
