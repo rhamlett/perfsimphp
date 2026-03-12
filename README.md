@@ -317,7 +317,34 @@ The application supports configuration via environment variables:
 | `MAX_MEMORY_ALLOCATION_MB` | 65536 | Max memory allocation per simulation |
 | `EVENT_LOG_MAX_ENTRIES` | 100 | Event log ring buffer size |
 | `HEALTH_PROBE_RATE` | 200 | Health probe interval in ms (min: 100) |
+| `REDIS_URL` | - | Redis connection for cross-pool storage (see below) |
 | `PAGE_FOOTER` | - | Custom footer HTML |
+
+### Redis Configuration (Optional)
+
+For better load test performance, configure Azure Cache for Redis or Azure Managed Redis 
+to eliminate file-lock contention during high-concurrency load tests:
+
+```bash
+# Create Azure Managed Redis (recommended)
+az redisenterprise create --name myredis --resource-group $RESOURCE_GROUP \
+  --location eastus --sku Balanced_B0 --public-network-access Enabled
+
+# Get connection details
+az redisenterprise database show --cluster-name myredis --resource-group $RESOURCE_GROUP \
+  --database-name default --query "hostName" -o tsv
+
+# Get access key
+az redisenterprise database list-keys --cluster-name myredis --resource-group $RESOURCE_GROUP \
+  --database-name default --query "primaryKey" -o tsv
+
+# Configure the app with Redis URL (TLS on port 10000 for Managed Redis)
+az webapp config appsettings set --name $APP_NAME --resource-group $RESOURCE_GROUP \
+  --settings REDIS_URL="rediss://:YOUR_KEY@myredis.eastus.redisenterprise.cache.azure.net:10000"
+```
+
+The app automatically uses Redis for cross-pool storage when `REDIS_URL` is set, 
+falling back to file-based storage otherwise.
 
 ### Setting Environment Variables (Azure CLI)
 

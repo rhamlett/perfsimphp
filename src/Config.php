@@ -114,6 +114,18 @@ class Config
         return max(100, $value); // Safety floor: minimum 100ms
     }
 
+    /**
+     * Redis connection URL for cross-pool storage.
+     * Format: redis://[:password@]host:port or rediss://... for TLS
+     * When set, cross-pool storage uses Redis instead of file-based storage.
+     * This eliminates file lock contention during load tests.
+     */
+    public static function redisUrl(): ?string
+    {
+        $url = getenv('REDIS_URL');
+        return ($url !== false && $url !== '') ? $url : null;
+    }
+
     /** Application version */
     public const APP_VERSION = '1.0.0';
 
@@ -222,6 +234,7 @@ class Config
             'maxMemoryAllocationMb' => self::maxMemoryAllocationMb(),
             'eventLogMaxEntries' => self::eventLogMaxEntries(),
             'latencyProbeIntervalMs' => self::healthProbeRateMs(),
+            'redisEnabled' => self::redisUrl() !== null,
         ];
     }
 }

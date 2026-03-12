@@ -144,6 +144,8 @@ fi
 # Log diagnostics
 echo "=== Diagnostics ==="
 echo "APCu: $(php -m 2>/dev/null | grep -qi apcu && echo 'available' || echo 'not available')"
+echo "Redis ext: $(php -m 2>/dev/null | grep -qi redis && echo 'available' || echo 'not available')"
+echo "REDIS_URL: $([ -n \"$REDIS_URL\" ] && echo 'configured' || echo 'not set')"
 echo "exec(): $(php -r "echo function_exists('exec') ? 'available' : 'disabled';" 2>/dev/null)"
 echo "memory_limit: $(php -r "echo ini_get('memory_limit');" 2>/dev/null)"
 echo "Nginx dirs: $(ls -d /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null || echo 'none found')"

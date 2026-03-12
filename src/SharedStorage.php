@@ -75,6 +75,10 @@ class SharedStorage
 {
     private static bool $apcuChecked = false;
     private static bool $apcuAvailable = false;
+    
+    // Redis connection for cross-pool storage (null = not attempted, false = failed, Redis = connected)
+    private static $redis = null;
+    private static bool $redisChecked = false;
 
     /**
      * Check if APCu is available and enabled.
@@ -89,15 +93,92 @@ class SharedStorage
     }
 
     /**
+     * Get Redis connection for cross-pool storage.
+     * Returns Redis instance if connected, false if unavailable/failed.
+     * Connection is lazy and cached.
+     */
+    private static function getRedis(): \Redis|false
+    {
+        if (self::$redisChecked) {
+            return self::$redis instanceof \Redis ? self::$redis : false;
+        }
+        
+        self::$redisChecked = true;
+        
+        // Check if Redis extension is loaded
+        if (!class_exists('\\Redis')) {
+            self::$redis = false;
+            return false;
+        }
+        
+        // Check if REDIS_URL is configured
+        $url = Config::redisUrl();
+        if ($url === null) {
+            self::$redis = false;
+            return false;
+        }
+        
+        try {
+            // Parse Redis URL: redis://[:password@]host:port or rediss://... for TLS
+            $parsed = parse_url($url);
+            if ($parsed === false || !isset($parsed['host'])) {
+                self::$redis = false;
+                return false;
+            }
+            
+            $host = $parsed['host'];
+            $port = $parsed['port'] ?? 6379;
+            $password = $parsed['pass'] ?? null;
+            $useTls = ($parsed['scheme'] ?? 'redis') === 'rediss';
+            
+            // Azure Cache for Redis uses TLS on port 6380
+            if ($useTls && $port === 6379) {
+                $port = 6380;
+            }
+            
+            $redis = new \Redis();
+            
+            // Connect with TLS if needed
+            if ($useTls) {
+                $redis->connect('tls://' . $host, $port, 2.0); // 2s timeout
+            } else {
+                $redis->connect($host, $port, 2.0);
+            }
+            
+            // Authenticate if password provided
+            if ($password !== null) {
+                $redis->auth($password);
+            }
+            
+            // Test connection
+            $redis->ping();
+            
+            self::$redis = $redis;
+            return $redis;
+            
+        } catch (\Throwable $e) {
+            // Log error but don't fail - fall back to file storage
+            error_log('Redis connection failed: ' . $e->getMessage());
+            self::$redis = false;
+            return false;
+        }
+    }
+
+    /**
      * Get information about the storage backend.
      */
     public static function getInfo(): array
     {
+        $redis = self::getRedis();
         return [
             'backend' => self::hasApcu() ? 'apcu' : 'file',
+            'crossPoolBackend' => $redis ? 'redis' : 'file',
             'apcuAvailable' => self::hasApcu(),
             'apcuFunctionExists' => function_exists('apcu_fetch'),
             'apcuEnabled' => function_exists('apcu_enabled') ? \apcu_enabled() : false,
+            'redisAvailable' => $redis !== false,
+            'redisExtension' => class_exists('\\Redis'),
+            'redisConfigured' => Config::redisUrl() !== null,
         ];
     }
 
@@ -334,13 +415,17 @@ class SharedStorage
     }
 
     // =========================================================================
-    // CROSS-POOL STORAGE (Always File-Based)
+    // CROSS-POOL STORAGE (Redis preferred, file fallback)
     // =========================================================================
     // 
-    // These methods ALWAYS use file-based storage even when APCu is available.
-    // This is necessary for sharing data between separate PHP-FPM pools (e.g.,
-    // main pool on port 9000 and metrics pool on port 9001) because each pool
-    // has its own isolated APCu instance.
+    // These methods share data between separate PHP-FPM pools (e.g.,
+    // main pool on port 9000 and metrics pool on port 9001).
+    //
+    // Storage backends:
+    // 1. Redis (preferred): Fast, no file locking, works under high load
+    // 2. File-based (fallback): Used when Redis is unavailable
+    //
+    // APCu is NOT usable here because each FPM pool has isolated APCu.
     //
     // Use cases:
     // - Sampled load test latencies (written by main pool, read by metrics pool)
@@ -348,26 +433,87 @@ class SharedStorage
     // =========================================================================
 
     /**
-     * Get a value from cross-pool storage (always file-based).
+     * Get a value from cross-pool storage.
+     * Uses Redis if available, falls back to file-based.
      */
     public static function crossPoolGet(string $key, mixed $default = null): mixed
     {
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $value = $redis->get('crosspool:' . $key);
+                if ($value === false) {
+                    return $default;
+                }
+                $decoded = json_decode($value, true);
+                return $decoded ?? $default;
+            } catch (\Throwable $e) {
+                // Fall through to file-based
+            }
+        }
         return self::fileGet($key, $default);
     }
 
     /**
-     * Store a value in cross-pool storage (always file-based).
+     * Store a value in cross-pool storage.
+     * Uses Redis if available, falls back to file-based.
      */
     public static function crossPoolSet(string $key, mixed $value, int $ttl = 0): void
     {
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $encoded = json_encode($value);
+                if ($ttl > 0) {
+                    $redis->setex('crosspool:' . $key, $ttl, $encoded);
+                } else {
+                    $redis->set('crosspool:' . $key, $encoded);
+                }
+                return;
+            } catch (\Throwable $e) {
+                // Fall through to file-based
+            }
+        }
         self::fileSet($key, $value, $ttl);
     }
 
     /**
-     * Atomically modify a value in cross-pool storage (always file-based).
+     * Atomically modify a value in cross-pool storage.
+     * Uses Redis if available, falls back to file-based.
+     * 
+     * Note: Redis doesn't have native read-modify-write, but WATCH/MULTI/EXEC
+     * provides optimistic locking which is much faster than file locks under load.
      */
     public static function crossPoolModify(string $key, callable $modifier, mixed $default = null): mixed
     {
+        $redis = self::getRedis();
+        if ($redis) {
+            try {
+                $redisKey = 'crosspool:' . $key;
+                
+                // Optimistic locking with WATCH
+                $maxRetries = 3;
+                for ($i = 0; $i < $maxRetries; $i++) {
+                    $redis->watch($redisKey);
+                    
+                    $value = $redis->get($redisKey);
+                    $current = ($value !== false) ? json_decode($value, true) : $default;
+                    $newValue = $modifier($current ?? $default);
+                    
+                    $redis->multi();
+                    $redis->set($redisKey, json_encode($newValue));
+                    $result = $redis->exec();
+                    
+                    if ($result !== false) {
+                        return $newValue;
+                    }
+                    // Transaction failed due to concurrent modification, retry
+                }
+                // Fall through to file-based after max retries
+            } catch (\Throwable $e) {
+                // Fall through to file-based
+            }
+        }
         return self::fileModify($key, $modifier, $default);
     }
 }
