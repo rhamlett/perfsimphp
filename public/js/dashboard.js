@@ -559,7 +559,7 @@ function updateActiveSimulations(simulations) {
       type: 'loadtest',
       label: 'Load Test',
       detail: `${simulations.loadTest.concurrent || 0} concurrent`,
-      icon: '📊',
+      icon: '�',
     });
   }
 

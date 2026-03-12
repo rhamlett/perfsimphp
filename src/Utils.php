@@ -86,16 +86,23 @@ class Utils
     }
 
     /**
-     * Formats a timestamp as ISO 8601.
+     * Formats a timestamp as ISO 8601 with milliseconds.
+     * Uses a robust approach that works in all edge cases.
      */
     public static function formatTimestamp(?float $microtime = null): string
     {
         $time = $microtime ?? microtime(true);
-        $dt = \DateTimeImmutable::createFromFormat('U.u', sprintf('%.6f', $time));
-        if ($dt === false) {
-            $dt = new \DateTimeImmutable();
-        }
-        return $dt->format('Y-m-d\TH:i:s.v\Z');
+        
+        // Extract seconds and microseconds
+        $seconds = (int)floor($time);
+        $microseconds = (int)(($time - $seconds) * 1000000);
+        
+        // Format using gmdate for UTC timezone
+        $date = gmdate('Y-m-d\TH:i:s', $seconds);
+        
+        // Append milliseconds (3 digits) and Z suffix
+        $milliseconds = (int)floor($microseconds / 1000);
+        return sprintf('%s.%03dZ', $date, $milliseconds);
     }
 
     /**

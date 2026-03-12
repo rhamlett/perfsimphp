@@ -315,69 +315,70 @@ class LoadTestService
      * Checks if 60 seconds have elapsed and broadcasts stats if so.
      * Can be called from load test requests OR metrics polling.
      * 
-     * IMPORTANT: If multiple periods have elapsed (e.g., workers were blocked),
-     * this logs MULTIPLE messages (one per period) so users see the full test history.
-     * Stats are averaged across all elapsed periods to give per-period estimates.
+     * Uses atomic modify to prevent race conditions where multiple workers
+     * all try to broadcast simultaneously. Only one worker will succeed.
      */
     public static function checkAndBroadcast(): void
     {
         try {
-            $stats = SharedStorage::get(self::STATS_KEY);
-            if (!is_array($stats) || !isset($stats['periodStart'])) {
+            // Atomically check and capture stats, resetting if period elapsed.
+            // This prevents multiple workers from racing to broadcast.
+            $captured = SharedStorage::modify(self::STATS_KEY, function($stats) {
+                if (!is_array($stats) || !isset($stats['periodStart'])) {
+                    return ['_action' => 'skip'];
+                }
+
+                $elapsed = time() - $stats['periodStart'];
+                if ($elapsed < self::STATS_PERIOD_SECONDS) {
+                    return ['_action' => 'skip'];
+                }
+
+                // Capture current stats and reset atomically
+                $stats['_action'] = 'broadcast';
+                $stats['_elapsed'] = $elapsed;
+                
+                // Return fresh stats (this is what gets stored)
+                // We'll return the OLD stats as the result for logging
+                return self::initPeriodStats() + ['_captured' => $stats];
+            }, self::initPeriodStats());
+            
+            // Check if we won the race to broadcast
+            if (!is_array($captured) || !isset($captured['_captured'])) {
+                return;
+            }
+            
+            $stats = $captured['_captured'];
+            if (($stats['_action'] ?? '') !== 'broadcast') {
                 return;
             }
 
-            $elapsed = time() - $stats['periodStart'];
-            if ($elapsed < self::STATS_PERIOD_SECONDS) {
-                return;
-            }
-
-            // Calculate how many complete periods have elapsed
-            $periodsElapsed = (int) floor($elapsed / self::STATS_PERIOD_SECONDS);
-
-            // Broadcast and reset
+            $elapsed = $stats['_elapsed'];
             $requestCount = $stats['requestCount'] ?? 0;
+            
+            // No requests in this period - nothing to log
             if ($requestCount === 0) {
-                // No requests, just reset the timer
-                SharedStorage::set(self::STATS_KEY, self::initPeriodStats());
                 return;
             }
 
-            // Calculate totals across all elapsed periods
-            $totalResponseTime = $stats['responseTimeSum'];
+            // Calculate stats (single period - no batching to avoid log spam)
+            $avgResponseTime = $stats['responseTimeSum'] / $requestCount;
             $maxResponseTime = $stats['maxResponseTime'];
             $totalErrorCount = $stats['errorCount'] ?? 0;
-            $totalDurationSecs = $periodsElapsed * self::STATS_PERIOD_SECONDS;
+            $requestsPerSecond = $requestCount / $elapsed;
+            $errorPercent = ($totalErrorCount / $requestCount) * 100;
 
-            // Calculate per-period averages
-            $requestsPerPeriod = $requestCount / $periodsElapsed;
-            $avgResponseTime = $totalResponseTime / $requestCount;
-            $requestsPerSecond = $requestCount / $totalDurationSecs;
-            $errorPercent = $requestCount > 0 ? ($totalErrorCount / $requestCount) * 100 : 0;
-
-            // Log ONE message per elapsed period so users see expected message count
-            for ($i = 0; $i < $periodsElapsed; $i++) {
-                $periodNum = $i + 1;
-                $suffix = $periodsElapsed > 1 
-                    ? sprintf(' [batch %d/%d]', $periodNum, $periodsElapsed)
-                    : '';
-
-                EventLogService::info(
-                    'LOAD_TEST_STATS',
-                    sprintf(
-                        'Load test period stats: %.0f requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors%s',
-                        round($requestsPerPeriod),
-                        $avgResponseTime,
-                        $maxResponseTime,
-                        $requestsPerSecond,
-                        $errorPercent,
-                        $suffix
-                    )
-                );
-            }
-
-            // Reset for next period
-            SharedStorage::set(self::STATS_KEY, self::initPeriodStats());
+            // Log a single summary message for this period
+            EventLogService::info(
+                'LOAD_TEST_STATS',
+                sprintf(
+                    'Load test period stats: %d requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors',
+                    $requestCount,
+                    $avgResponseTime,
+                    $maxResponseTime,
+                    $requestsPerSecond,
+                    $errorPercent
+                )
+            );
         } catch (\Throwable $e) {
             // Silently skip
         }
