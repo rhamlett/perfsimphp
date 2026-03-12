@@ -314,6 +314,10 @@ class LoadTestService
     /**
      * Checks if 60 seconds have elapsed and broadcasts stats if so.
      * Can be called from load test requests OR metrics polling.
+     * 
+     * IMPORTANT: If multiple periods have elapsed (e.g., workers were blocked),
+     * this logs MULTIPLE messages (one per period) so users see the full test history.
+     * Stats are averaged across all elapsed periods to give per-period estimates.
      */
     public static function checkAndBroadcast(): void
     {
@@ -328,7 +332,10 @@ class LoadTestService
                 return;
             }
 
-            // 60s elapsed - broadcast and reset
+            // Calculate how many complete periods have elapsed
+            $periodsElapsed = (int) floor($elapsed / self::STATS_PERIOD_SECONDS);
+
+            // Broadcast and reset
             $requestCount = $stats['requestCount'] ?? 0;
             if ($requestCount === 0) {
                 // No requests, just reset the timer
@@ -336,25 +343,38 @@ class LoadTestService
                 return;
             }
 
-            // Calculate averages
-            $avgResponseTime = $stats['responseTimeSum'] / $requestCount;
+            // Calculate totals across all elapsed periods
+            $totalResponseTime = $stats['responseTimeSum'];
             $maxResponseTime = $stats['maxResponseTime'];
-            $requestsPerSecond = $requestCount / self::STATS_PERIOD_SECONDS;
-            $errorCount = $stats['errorCount'] ?? 0;
-            $errorPercent = $requestCount > 0 ? ($errorCount / $requestCount) * 100 : 0;
+            $totalErrorCount = $stats['errorCount'] ?? 0;
+            $totalDurationSecs = $periodsElapsed * self::STATS_PERIOD_SECONDS;
 
-            // Log to event log
-            EventLogService::info(
-                'LOAD_TEST_STATS',
-                sprintf(
-                    '📊 Load test period stats: %d requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors',
-                    $requestCount,
-                    $avgResponseTime,
-                    $maxResponseTime,
-                    $requestsPerSecond,
-                    $errorPercent
-                )
-            );
+            // Calculate per-period averages
+            $requestsPerPeriod = $requestCount / $periodsElapsed;
+            $avgResponseTime = $totalResponseTime / $requestCount;
+            $requestsPerSecond = $requestCount / $totalDurationSecs;
+            $errorPercent = $requestCount > 0 ? ($totalErrorCount / $requestCount) * 100 : 0;
+
+            // Log ONE message per elapsed period so users see expected message count
+            for ($i = 0; $i < $periodsElapsed; $i++) {
+                $periodNum = $i + 1;
+                $suffix = $periodsElapsed > 1 
+                    ? sprintf(' [batch %d/%d]', $periodNum, $periodsElapsed)
+                    : '';
+
+                EventLogService::info(
+                    'LOAD_TEST_STATS',
+                    sprintf(
+                        'Load test period stats: %.0f requests, %.1f avg ms, %.0f max ms, %.2f RPS, %.1f%% errors%s',
+                        round($requestsPerPeriod),
+                        $avgResponseTime,
+                        $maxResponseTime,
+                        $requestsPerSecond,
+                        $errorPercent,
+                        $suffix
+                    )
+                );
+            }
 
             // Reset for next period
             SharedStorage::set(self::STATS_KEY, self::initPeriodStats());
@@ -362,7 +382,6 @@ class LoadTestService
             // Silently skip
         }
     }
-
     /**
      * Initialize period stats structure.
      */

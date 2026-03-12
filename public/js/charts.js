@@ -335,14 +335,6 @@ function onProbeLatency(data) {
     if (!serverResponsiveness.isResponsive) {
       const unresponsiveDuration = Date.now() - serverResponsiveness.unresponsiveStartTime;
       serverResponsiveness.totalUnresponsiveTime += unresponsiveDuration;
-
-      // Only log recovery if unresponsive for at least 10s (matches warning threshold)
-      if (!data.loadTestActive && unresponsiveDuration >= 10000 && typeof addEventToLog === 'function') {
-        addEventToLog({
-          level: 'success',
-          message: `Server responsive again after ${(unresponsiveDuration / 1000).toFixed(1)}s unresponsive`
-        });
-      }
     }
 
     serverResponsiveness.isResponsive = true;
@@ -354,16 +346,6 @@ function onProbeLatency(data) {
     if (timeSinceSuccess >= UNRESPONSIVE_THRESHOLD_MS && serverResponsiveness.isResponsive) {
       serverResponsiveness.isResponsive = false;
       serverResponsiveness.unresponsiveStartTime = serverResponsiveness.lastSuccessfulProbe; // Use actual failure start time
-
-      const now = Date.now();
-      if (!data.loadTestActive && typeof addEventToLog === 'function' &&
-          (!serverResponsiveness.lastWarningTime || now - serverResponsiveness.lastWarningTime >= 10000)) {
-        serverResponsiveness.lastWarningTime = now;
-        addEventToLog({
-          level: 'warning',
-          message: 'Server unresponsive - PHP-FPM workers may be blocked'
-        });
-      }
     }
   }
 
