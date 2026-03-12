@@ -235,11 +235,13 @@ class LoadTestService
     
     /**
      * Samples 1 in 10 load test request latencies for the latency monitor.
-     * Stores sampled latencies in a circular buffer (max 100 entries).
+     * Stores sampled latencies with time-based expiry (keeps last 5 seconds).
      * 
      * IMPORTANT: Uses cross-pool file storage (not APCu) because the main FPM pool
      * (port 9000) writes these latencies, but the metrics FPM pool (port 9001)
      * reads them. Each pool has its own APCu, so we must use file-based storage.
+     * 
+     * OPTIMIZATION: Writer handles expiry to keep file small and reduce read contention.
      */
     private static function maybeSampleLatency(float $responseTimeMs): void
     {
@@ -249,8 +251,10 @@ class LoadTestService
         }
         
         try {
+            $now = (int)(microtime(true) * 1000);
+            
             // Use cross-pool storage (file-based) so metrics pool can read these
-            SharedStorage::crossPoolModify(self::SAMPLED_LATENCIES_KEY, function($data) use ($responseTimeMs) {
+            SharedStorage::crossPoolModify(self::SAMPLED_LATENCIES_KEY, function($data) use ($responseTimeMs, $now) {
                 if (!is_array($data)) {
                     $data = ['latencies' => []];
                 }
@@ -258,14 +262,16 @@ class LoadTestService
                 // Add new latency entry
                 $data['latencies'][] = [
                     'latencyMs' => round($responseTimeMs, 2),
-                    'timestamp' => (int)(microtime(true) * 1000),
+                    'timestamp' => $now,
                     'source' => 'loadtest',
                 ];
                 
-                // Keep only the last MAX_SAMPLED_LATENCIES entries (circular buffer)
-                if (count($data['latencies']) > self::MAX_SAMPLED_LATENCIES) {
-                    $data['latencies'] = array_slice($data['latencies'], -self::MAX_SAMPLED_LATENCIES);
-                }
+                // TIME-BASED EXPIRY: Remove entries older than 5 seconds
+                // This keeps the file small and reduces read/parse time
+                $cutoff = $now - 5000;
+                $data['latencies'] = array_values(array_filter($data['latencies'], function($entry) use ($cutoff) {
+                    return $entry['timestamp'] > $cutoff;
+                }));
                 
                 return $data;
             }, ['latencies' => []]);
@@ -275,48 +281,54 @@ class LoadTestService
     }
     
     /**
-     * Gets sampled latencies for the latency monitor.
-     * Returns latencies newer than the given timestamp, then clears them.
+     * Gets sampled latencies for the latency monitor (READ-ONLY).
+     * Returns latencies from the last few seconds without modifying storage.
      * 
-     * IMPORTANT: Uses cross-pool file storage (not APCu) because this is called
-     * by the metrics FPM pool (port 9001), but latencies are written by the main
-     * FPM pool (port 9000). Each pool has its own APCu instance.
+     * IMPORTANT: This is a non-destructive read. The writer handles expiry
+     * to keep the file small. This eliminates write contention on the metrics
+     * pool which was causing UI freezes under load.
      * 
-     * @param int $sinceTimestamp Only return latencies after this timestamp (ms)
+     * @param int $sinceTimestamp Only return latencies after this timestamp (ms), 0 for all recent
      * @return array Array of latency entries
      */
     public static function getSampledLatencies(int $sinceTimestamp = 0): array
     {
+        static $lastReadTimestamp = 0;
+        static $lastReadData = [];
+        
         try {
-            // Use cross-pool storage (file-based) to read what main pool wrote
+            // Cache reads for 200ms to reduce file I/O under rapid polling
+            $now = (int)(microtime(true) * 1000);
+            if ($now - $lastReadTimestamp < 200 && !empty($lastReadData)) {
+                // Return cached data, filtered by sinceTimestamp
+                if ($sinceTimestamp > 0) {
+                    return array_values(array_filter($lastReadData, function($entry) use ($sinceTimestamp) {
+                        return $entry['timestamp'] > $sinceTimestamp;
+                    }));
+                }
+                return $lastReadData;
+            }
+            
+            // Read from cross-pool storage (file-based)
             $data = SharedStorage::crossPoolGet(self::SAMPLED_LATENCIES_KEY);
             if (!is_array($data) || !isset($data['latencies'])) {
+                $lastReadTimestamp = $now;
+                $lastReadData = [];
                 return [];
             }
             
-            // Filter to only latencies after sinceTimestamp
-            $latencies = array_filter($data['latencies'], function($entry) use ($sinceTimestamp) {
-                return $entry['timestamp'] > $sinceTimestamp;
-            });
+            // Cache the read
+            $lastReadTimestamp = $now;
+            $lastReadData = $data['latencies'];
             
-            // Clear consumed latencies
-            if (!empty($latencies)) {
-                SharedStorage::crossPoolModify(self::SAMPLED_LATENCIES_KEY, function($data) use ($sinceTimestamp) {
-                    if (!is_array($data) || !isset($data['latencies'])) {
-                        return ['latencies' => []];
-                    }
-                    // Keep only latencies that we haven't returned yet
-                    // Find the max timestamp we're returning and clear those
-                    $maxTimestamp = max(array_column($data['latencies'], 'timestamp'));
-                    $data['latencies'] = array_filter($data['latencies'], function($entry) use ($maxTimestamp) {
-                        return $entry['timestamp'] > $maxTimestamp;
-                    });
-                    $data['latencies'] = array_values($data['latencies']);
-                    return $data;
-                }, ['latencies' => []]);
+            // Filter by sinceTimestamp if provided
+            if ($sinceTimestamp > 0) {
+                return array_values(array_filter($data['latencies'], function($entry) use ($sinceTimestamp) {
+                    return $entry['timestamp'] > $sinceTimestamp;
+                }));
             }
             
-            return array_values($latencies);
+            return $data['latencies'];
         } catch (\Throwable $e) {
             return [];
         }

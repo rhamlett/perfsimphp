@@ -65,6 +65,9 @@ const MAX_EVENT_LOG_ENTRIES = 100;
 let activeSimulations = {};
 let lastSimulationsJson = ''; // Track last state to avoid unnecessary re-renders
 
+// Track last latency timestamp to avoid dispatching duplicates
+let lastDispatchedLatencyTimestamp = 0;
+
 /**
  * Initializes the polling client callbacks.
  * Called on page load to wire up data flow from polling-client.js.
@@ -86,8 +89,15 @@ function initDashboard() {
     }
     
     // Dispatch sampled load test latencies to the latency chart (1 in 10 sampling)
+    // Track timestamp to avoid dispatching duplicates from cached server responses
     if (metrics.loadTestLatencies && Array.isArray(metrics.loadTestLatencies)) {
       for (const entry of metrics.loadTestLatencies) {
+        // Skip if we've already dispatched this latency (by timestamp)
+        if (entry.timestamp <= lastDispatchedLatencyTimestamp) {
+          continue;
+        }
+        lastDispatchedLatencyTimestamp = Math.max(lastDispatchedLatencyTimestamp, entry.timestamp);
+        
         if (typeof window.chartsOnProbeLatency === 'function') {
           window.chartsOnProbeLatency({
             latencyMs: entry.latencyMs,

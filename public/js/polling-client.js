@@ -74,9 +74,11 @@ const maxReconnectAttempts = 10;
 // Polling intervals (milliseconds)
 const METRICS_POLL_INTERVAL = 250;
 const EVENTS_POLL_INTERVAL = 2000;
-// Chart update interval - latency chart still updates at 100ms for smoothness
+// Chart update interval - normal 100ms for smoothness, slower during load tests
 // Uses interpolation when PROBE_POLL_INTERVAL is larger
-const LATENCY_CHART_UPDATE_INTERVAL = 100;
+const LATENCY_CHART_UPDATE_INTERVAL_NORMAL = 100;
+const LATENCY_CHART_UPDATE_INTERVAL_LOAD_TEST = 250; // Slower during load tests to reduce browser thread pressure
+let currentChartUpdateInterval = LATENCY_CHART_UPDATE_INTERVAL_NORMAL;
 // Configurable probe interval (fetched from server, default 200ms, min 100ms)
 let PROBE_POLL_INTERVAL = 200;
 const INTERNAL_PROBE_COUNT = 10;
@@ -280,15 +282,55 @@ function onPollSuccess() {
 // Metrics Polling
 // ============================================================================
 
+// Dynamic metrics interval - increases when server is slow/under load
+const METRICS_POLL_INTERVAL_NORMAL = 250;
+const METRICS_POLL_INTERVAL_LOAD_TEST = 1000; // Slower during load tests to reduce contention
+let currentMetricsInterval = METRICS_POLL_INTERVAL_NORMAL;
+
 /**
  * Starts polling /api/metrics at the configured interval.
+ * Interval dynamically adjusts based on load test state.
  */
 function startMetricsPolling() {
   if (metricsPollTimer) clearInterval(metricsPollTimer);
 
+  currentMetricsInterval = loadTestActive ? METRICS_POLL_INTERVAL_LOAD_TEST : METRICS_POLL_INTERVAL_NORMAL;
+  
   // Poll immediately, then at interval
   pollMetricsOnce();
-  metricsPollTimer = setInterval(pollMetricsOnce, METRICS_POLL_INTERVAL);
+  metricsPollTimer = setInterval(pollMetricsOnce, currentMetricsInterval);
+}
+
+/**
+ * Adjusts metrics polling interval based on load test state.
+ * Called when load test state changes.
+ */
+function adjustMetricsInterval() {
+  const newInterval = loadTestActive ? METRICS_POLL_INTERVAL_LOAD_TEST : METRICS_POLL_INTERVAL_NORMAL;
+  if (newInterval !== currentMetricsInterval) {
+    currentMetricsInterval = newInterval;
+    if (metricsPollTimer) {
+      clearInterval(metricsPollTimer);
+      metricsPollTimer = setInterval(pollMetricsOnce, currentMetricsInterval);
+    }
+    console.log('[polling-client] Metrics interval adjusted to ' + currentMetricsInterval + 'ms');
+  }
+}
+
+/**
+ * Adjusts chart update interval based on load test state.
+ * Slower updates during load tests reduce browser thread pressure.
+ */
+function adjustChartUpdateInterval() {
+  const newInterval = loadTestActive ? LATENCY_CHART_UPDATE_INTERVAL_LOAD_TEST : LATENCY_CHART_UPDATE_INTERVAL_NORMAL;
+  if (newInterval !== currentChartUpdateInterval) {
+    currentChartUpdateInterval = newInterval;
+    if (chartUpdateTimer) {
+      clearInterval(chartUpdateTimer);
+      chartUpdateTimer = setInterval(dispatchChartUpdate, currentChartUpdateInterval);
+    }
+    console.log('[polling-client] Chart update interval adjusted to ' + currentChartUpdateInterval + 'ms');
+  }
 }
 
 // Guard to prevent metrics pile-up when server is slow
@@ -336,13 +378,16 @@ function pollMetricsOnce() {
         }
       }
       
-      // Log state change for debugging
+      // Log state change for debugging and adjust intervals
       if (loadTestActive !== wasActive) {
         if (loadTestActive) {
           console.log('[polling-client] Load test ACTIVE - reducing probe rate to ' + (LOAD_TEST_PROBE_INTERVAL/1000) + 's, using sampled latencies');
         } else {
           console.log('[polling-client] Load test ENDED - resuming normal probe rate after cooldown');
         }
+        // Adjust polling intervals based on load test state
+        adjustMetricsInterval();
+        adjustChartUpdateInterval();
       }
       
       if (typeof onMetricsUpdate === 'function') {
@@ -534,9 +579,9 @@ function startProbePolling() {
   probeOnce();
   probePollTimer = setInterval(probeOnce, PROBE_POLL_INTERVAL);
   
-  // Start chart updates at 100ms for smooth visualization
+  // Start chart updates (100ms normal, 250ms during load tests)
   // This dispatches interpolated/repeated values when probe rate is slower
-  chartUpdateTimer = setInterval(dispatchChartUpdate, LATENCY_CHART_UPDATE_INTERVAL);
+  chartUpdateTimer = setInterval(dispatchChartUpdate, currentChartUpdateInterval);
 }
 
 /**
@@ -559,7 +604,7 @@ function dispatchChartUpdate() {
   
   // If probe rate is faster than or equal to chart update rate, 
   // probeOnce already dispatches via onProbeLatency, no interpolation needed
-  if (effectiveProbeInterval <= LATENCY_CHART_UPDATE_INTERVAL) return;
+  if (effectiveProbeInterval <= currentChartUpdateInterval) return;
   
   // Interpolation: dispatch the last known value at chart update intervals
   // This fills in the gaps between slower probe measurements
