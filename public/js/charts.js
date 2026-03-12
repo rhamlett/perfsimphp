@@ -291,7 +291,7 @@ function getLatencyBorderColor(maxValue) {
 }
 
 // Server responsiveness tracking - uses time-based detection (10 second threshold)
-const UNRESPONSIVE_THRESHOLD_MS = 10000;  // 10 seconds before marking unresponsive
+// Note: UNRESPONSIVE_THRESHOLD_MS is defined in polling-client.js (loaded first)
 const serverResponsiveness = {
   isResponsive: true,
   lastProbeTime: Date.now(),
@@ -841,7 +841,8 @@ function clearCharts() {
 }
 
 // Expose functions globally so polling-client.js can call them
-window.chartsOnProbeLatency = onProbeLatency;
+window.onProbeLatency = onProbeLatency;  // Used by polling-client.js for probe results
+window.chartsOnProbeLatency = onProbeLatency;  // Used by dashboard.js for load test latencies
 window.chartsClearAll = clearCharts;
 
 // Initialize charts when DOM is ready
