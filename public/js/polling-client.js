@@ -95,9 +95,12 @@ let probePollTimer = null;
 let lastEventCount = 0;
 let lastEventSequence = 0;  // Monotonic sequence for reliable change detection
 
-// Track consecutive failures for connection status
-let consecutiveFailures = 0;
-const MAX_CONSECUTIVE_FAILURES = 10;
+// Track connection status using time-based detection
+let lastSuccessfulPollTime = Date.now();
+const UNRESPONSIVE_THRESHOLD_MS = 10000;  // 10 seconds before showing "not responding"
+
+// Track first connection to avoid clearing event log on reconnection
+let isFirstConnection = true;
 
 /**
  * Fetch with timeout using AbortController.
@@ -146,7 +149,6 @@ function initSocket() {
 function onConnected() {
   isConnected = true;
   reconnectAttempts = 0;
-  consecutiveFailures = 0;
 
   const statusEl = document.getElementById('connection-status');
   if (statusEl) {
@@ -159,11 +161,8 @@ function onConnected() {
   startEventsPolling();
   startProbePolling();
 
-  // Add initialization events to the log
-  if (typeof addEventToLog === 'function') {
-    addEventToLog({ level: 'info', message: 'Dashboard initialized' });
-    addEventToLog({ level: 'success', message: 'Server responding' });
-  }
+  // Note: Event log messages are handled in initializeEventLog() to differentiate
+  // between first connection (page load) and reconnection after server recovery
 
   // Notify dashboard of connection
   if (typeof onSocketConnected === 'function') {
@@ -200,11 +199,12 @@ function onConnectionFailed() {
 }
 
 /**
- * Handles a polling failure. Updates connection status after consecutive failures.
+ * Handles a polling failure. Updates connection status after sustained failures.
+ * Uses time-based detection (10 seconds) instead of counting failures.
  */
 function onPollFailure() {
-  consecutiveFailures++;
-  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && isConnected) {
+  const timeSinceSuccess = Date.now() - lastSuccessfulPollTime;
+  if (timeSinceSuccess >= UNRESPONSIVE_THRESHOLD_MS && isConnected) {
     isConnected = false;
     const statusEl = document.getElementById('connection-status');
     if (statusEl) {
@@ -227,18 +227,16 @@ function onPollFailure() {
  * Handles a polling success. Resets failure tracking and updates status.
  */
 function onPollSuccess() {
-  if (consecutiveFailures > 0) {
-    consecutiveFailures = 0;
-    if (!isConnected) {
-      isConnected = true;
-      const statusEl = document.getElementById('connection-status');
-      if (statusEl) {
-        statusEl.textContent = 'Connected';
-        statusEl.className = 'status-connected';
-      }
-      if (typeof addEventToLog === 'function') {
-        addEventToLog({ level: 'success', message: 'Server responding' });
-      }
+  lastSuccessfulPollTime = Date.now();
+  if (!isConnected) {
+    isConnected = true;
+    const statusEl = document.getElementById('connection-status');
+    if (statusEl) {
+      statusEl.textContent = 'Connected';
+      statusEl.className = 'status-connected';
+    }
+    if (typeof addEventToLog === 'function') {
+      addEventToLog({ level: 'success', message: 'Server responding' });
     }
   }
 }
@@ -311,19 +309,30 @@ function initializeEventLog() {
       lastEventSequence = data.sequence || 0;
       lastEventCount = data.total || data.count || (data.events || []).length;
       
-      // Clear event log state (both JS state and DOM) to start fresh
-      if (typeof window.clearEventLog === 'function') {
-        window.clearEventLog();
-      }
-      
-      // Add initial connection events AFTER clearing
-      // These show the user that background monitoring is active
-      if (typeof addEventToLog === 'function') {
-        addEventToLog({ level: 'info', message: 'Dashboard initialized' });
-        addEventToLog({ level: 'success', message: 'Connected to metrics hub' });
+      // Only clear event log on true page load, not on reconnection
+      // This preserves test results when server temporarily becomes unresponsive
+      if (isFirstConnection) {
+        // Clear event log state (both JS state and DOM) to start fresh
+        if (typeof window.clearEventLog === 'function') {
+          window.clearEventLog();
+        }
         
-        // Add environment/SKU message
-        addEnvironmentMessage();
+        // Add initial connection events AFTER clearing
+        // These show the user that background monitoring is active
+        if (typeof addEventToLog === 'function') {
+          addEventToLog({ level: 'info', message: 'Dashboard initialized' });
+          addEventToLog({ level: 'success', message: 'Connected to metrics hub' });
+          
+          // Add environment/SKU message
+          addEnvironmentMessage();
+        }
+        
+        isFirstConnection = false;
+      } else {
+        // On reconnection, just log that we've reconnected
+        if (typeof addEventToLog === 'function') {
+          addEventToLog({ level: 'success', message: 'Reconnected to metrics hub' });
+        }
       }
     })
     .catch((error) => {

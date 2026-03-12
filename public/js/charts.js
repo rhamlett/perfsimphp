@@ -290,13 +290,13 @@ function getLatencyBorderColor(maxValue) {
   return getInterpolatedLatencyColor(maxValue);
 }
 
-// Server responsiveness tracking
+// Server responsiveness tracking - uses time-based detection (10 second threshold)
+const UNRESPONSIVE_THRESHOLD_MS = 10000;  // 10 seconds before marking unresponsive
 const serverResponsiveness = {
   isResponsive: true,
   lastProbeTime: Date.now(),
   lastSuccessfulProbe: Date.now(),
   probeInterval: null,
-  consecutiveFailures: 0,
   unresponsiveStartTime: null,
   totalUnresponsiveTime: 0,
   probeHistory: [],
@@ -336,8 +336,8 @@ function onProbeLatency(data) {
       const unresponsiveDuration = Date.now() - serverResponsiveness.unresponsiveStartTime;
       serverResponsiveness.totalUnresponsiveTime += unresponsiveDuration;
 
-      // Only log recovery if unresponsive for at least 5s (matches warning threshold)
-      if (!data.loadTestActive && unresponsiveDuration >= 5000 && typeof addEventToLog === 'function') {
+      // Only log recovery if unresponsive for at least 10s (matches warning threshold)
+      if (!data.loadTestActive && unresponsiveDuration >= 10000 && typeof addEventToLog === 'function') {
         addEventToLog({
           level: 'success',
           message: `Server responsive again after ${(unresponsiveDuration / 1000).toFixed(1)}s unresponsive`
@@ -347,15 +347,13 @@ function onProbeLatency(data) {
 
     serverResponsiveness.isResponsive = true;
     serverResponsiveness.lastSuccessfulProbe = Date.now();
-    serverResponsiveness.consecutiveFailures = 0;
     serverResponsiveness.unresponsiveStartTime = null;
   } else {
-    serverResponsiveness.consecutiveFailures++;
-
-    // Only mark as unresponsive after sustained failures (about 5 seconds at 100ms probe interval)
-    if (serverResponsiveness.consecutiveFailures >= 50 && serverResponsiveness.isResponsive) {
+    // Check if we've been failing for longer than the threshold (time-based, not count-based)
+    const timeSinceSuccess = Date.now() - serverResponsiveness.lastSuccessfulProbe;
+    if (timeSinceSuccess >= UNRESPONSIVE_THRESHOLD_MS && serverResponsiveness.isResponsive) {
       serverResponsiveness.isResponsive = false;
-      serverResponsiveness.unresponsiveStartTime = Date.now() - 5000; // Backdate to when failures started
+      serverResponsiveness.unresponsiveStartTime = serverResponsiveness.lastSuccessfulProbe; // Use actual failure start time
 
       const now = Date.now();
       if (!data.loadTestActive && typeof addEventToLog === 'function' &&
